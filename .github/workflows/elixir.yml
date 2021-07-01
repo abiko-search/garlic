@@ -1,0 +1,19 @@
+name: Elixir CI
+
+on: push
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: elixir:1.12
+    steps:
+    - uses: actions/checkout@v1
+    - name: Install dependencies
+      run: |
+        git submodule update --init
+        mix local.rebar --force
+        mix local.hex --force
+        mix deps.get
+    - name: Run tests
+      run: mix test

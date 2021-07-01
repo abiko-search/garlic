@@ -1,5 +1,7 @@
 # Garlic
 
+![](https://github.com/abiko-search/garlic/workflows/Elixir%20CI/badge.svg)
+
 Pure Elixir Tor client implementation
 
 ## Disclaimer
