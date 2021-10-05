@@ -27,4 +27,19 @@ defmodule Garlic.Util do
 
     {data, tl(tail)}
   end
+
+  @spec onion_address_valid?(binary) :: boolean
+  def onion_address_valid?(<<address::binary-size(56), ".onion">>) do
+    with {:ok, <<pubkey::binary-size(32), checksum::binary-size(2), 3>>} <-
+           Base.decode32(String.upcase(address)),
+        true <- Garlic.Crypto.Ed25519.on_curve?(pubkey),
+         <<^checksum::binary-size(2), _::binary>> <-
+           :crypto.hash(:sha3_256, [".onion checksum", pubkey, 3]) do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  def onion_address_valid?(_), do: false
 end

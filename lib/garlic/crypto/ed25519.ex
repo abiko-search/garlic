@@ -32,9 +32,15 @@ defmodule Garlic.Crypto.Ed25519 do
 
   @spec blind_public_key(binary, binary) :: binary
   def blind_public_key(public_key, param) do
+    point = decode_point(public_key)
+
+    unless on_curve?(point) do
+      raise ArgumentError, "point off curve"
+    end
+
     param
     |> a_from_hash()
-    |> scalarmult(decode_point(public_key))
+    |> scalarmult(point)
     |> encode_point()
   end
 
@@ -93,12 +99,16 @@ defmodule Garlic.Crypto.Ed25519 do
     y = n &&& 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
     x = xrecover(y)
 
-    point = if (x &&& 1) == xc, do: {x, y}, else: {@p - x, y}
-
-    if is_on_curve(point), do: point, else: raise("point off curve")
+    if (x &&& 1) == xc, do: {x, y}, else: {@p - x, y}
   end
 
-  defp is_on_curve({x, y}), do: mod(-x * x + y * y - 1 - @d * x * x * y * y, @p) == 0
+  def on_curve?({x, y}), do: mod(-x * x + y * y - 1 - @d * x * x * y * y, @p) == 0
+
+  def on_curve?(binary) when is_binary(binary) do
+    binary
+    |> decode_point
+    |> on_curve?
+  end
 
   defp a_from_hash(<<h::little-size(256), _rest::binary>>) do
     @t254 + band(h, 0xF3FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF8)

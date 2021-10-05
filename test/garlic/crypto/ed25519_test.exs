@@ -7,7 +7,7 @@ defmodule Garlic.Crypto.Ed25519Test do
   test "raises an error when point is off the curve" do
     param = <<2, 0::size(31)-unit(8)>>
 
-    assert_raise RuntimeError, "point off curve", fn ->
+    assert_raise ArgumentError, "point off curve", fn ->
       "E19C65DE75C68CF3B7643EA732BA9EB1A3D20D6D57BA223C2ECE1DF66FEB5AF0"
       |> decode16!()
       |> blind_public_key(param)
