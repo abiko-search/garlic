@@ -21,19 +21,16 @@ end
 ## Usage
 
 ```elixir
-alias Garlic.{Circuit, NetworkStatus, Mint}
+alias Garlic.{CircuitManager, Mint.Client}
 
 domain = "abikoifawyrftqivkhfxiwdjcdzybumpqrbowtudtwhrhpnykfonyzid.onion"
 port = 80
 
-routers = NetworkStatus.pick_fast_routers(2)
-
-with {:ok, pid} <- Circuit.start(),
-     :ok <- Circuit.build_rendezvous(pid, routers, domain) do
+with {:ok, pid} <- CircuitManager.get_circuit(domain) do
   for {url, i} <- Enum.with_index(~w(/ /robots.txt /sitemap.xml)) do
     Task.async fn ->
       pid
-      |> Mint.Client.request(i + 1, domain, port, "GET", url, [], "")
+      |> Client.request(i + 1, domain, port, "GET", url, [], "")
       |> Enum.join()
       |> IO.inspect(label: url)
     end

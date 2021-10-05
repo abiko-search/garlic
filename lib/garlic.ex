@@ -5,11 +5,12 @@ defmodule Garlic do
 
   def start(_type, _args) do
     children = [
-      Garlic.NetworkStatus
+      Garlic.NetworkStatus,
+      {Registry, name: Garlic.CircuitRegistry, keys: :unique},
+      {Garlic.CircuitSupervisor, []},
+      {Garlic.CircuitManager, []}
     ]
 
-    opts = [strategy: :one_for_one]
-
-    Supervisor.start_link(children, opts)
+    Supervisor.start_link(children, strategy: :one_for_one)
   end
 end

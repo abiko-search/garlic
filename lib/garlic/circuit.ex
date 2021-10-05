@@ -38,9 +38,21 @@ defmodule Garlic.Circuit do
 
   @default_timeout 10_000
 
-  @spec start(id :: pos_integer) :: {:ok, pid} | {:error, any}
+  @spec start(id) :: {:ok, pid} | {:error, any}
   def start(id \\ :rand.uniform(0x0FFFFFFF)) do
     GenServer.start(__MODULE__, id)
+  end
+
+  @spec start_link(id, binary) :: {:ok, pid} | {:error, any}
+  def start_link(id, domain) do
+    GenServer.start_link(__MODULE__, id, name: {:via, Registry, {Garlic.CircuitRegistry, domain}})
+  end
+
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, opts}
+    }
   end
 
   @spec connect(pid, Router.t(), timeout) :: :ok | {:error, atom}

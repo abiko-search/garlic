@@ -67,7 +67,6 @@ defmodule Garlic.NetworkStatus do
 
     network_status = with nil <- read_cached(), do: download()
 
-
     network_status.routers
     |> Stream.filter(&(not is_nil(&1.ntor_onion_key)))
     |> Enum.map(&:ets.insert(:routers, {&1.fingerprint, &1}))
@@ -183,7 +182,9 @@ defmodule Garlic.NetworkStatus do
         if Enum.count(fingerprints) > 0 do
           with {:ok, descriptors} <- do_fetch_router_descriptors(fast_directories, fingerprints) do
             descriptors_map = for d <- descriptors, into: %{}, do: {d.fingerprint, d}
-            routers = Enum.map(routers, &struct(&1, Map.get(descriptors_map, &1.fingerprint, %{})))
+
+            routers =
+              Enum.map(routers, &struct(&1, Map.get(descriptors_map, &1.fingerprint, %{})))
 
             Enum.map(routers, &:ets.insert(:routers, {&1.fingerprint, &1}))
 
@@ -238,7 +239,8 @@ defmodule Garlic.NetworkStatus do
 
   defp do_fetch_router_descriptors(directories, fingerprints, retries \\ 3)
 
-  defp do_fetch_router_descriptors(_directories, _fingerprints, 0), do: {:error, :directory_unavailable}
+  defp do_fetch_router_descriptors(_directories, _fingerprints, 0),
+    do: {:error, :directory_unavailable}
 
   defp do_fetch_router_descriptors(directories, fingerprints, retries) do
     directory = Enum.random(directories)
