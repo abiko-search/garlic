@@ -5,7 +5,7 @@ defmodule Garlic.CircuitManager do
 
   defstruct last_id: 1
 
-  @default_timeout 10_000
+  @default_timeout 30_000
 
   @spec start_link(any) :: {:ok, pid} | {:error, any}
   def start_link(_config) do
