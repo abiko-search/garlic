@@ -457,7 +457,11 @@ defmodule Garlic.Circuit do
     with {:ok, {_, :introduce_ack, status}, circuit} <- recieve_relay(circuit) do
       Logger.debug("Recieved RELAY_INTRODUCE_ACK #{status}")
 
-      {:ok, circuit}
+      if status == :success do
+        {:ok, circuit}
+      else
+        {:error, :"introduce_#{status}"}
+      end
     end
   end
 
