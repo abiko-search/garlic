@@ -187,13 +187,13 @@ defmodule Garlic.Circuit do
     with {:ok, socket} <- :gen_tcp.connect(address, port, tcp_options),
          {:ok, socket} <- :ssl.connect(socket, ssl_options),
          {:ok, circuit} <- send_versions(%{circuit | socket: socket, routers: [router]}),
-         {:ok, circuit} <- recieve_versions(circuit),
-         {:ok, circuit} <- recieve_certs(circuit),
-         {:ok, circuit} <- recieve_auth_challenge(circuit),
-         {:ok, {their_address, my_address}, circuit} <- recieve_netinfo(circuit),
+         {:ok, circuit} <- receive_versions(circuit),
+         {:ok, circuit} <- receive_certs(circuit),
+         {:ok, circuit} <- receive_auth_challenge(circuit),
+         {:ok, {their_address, my_address}, circuit} <- receive_netinfo(circuit),
          {:ok, circuit} <- send_netinfo(circuit, their_address, my_address),
          {:ok, circuit} <- send_create2(generate_keypair(circuit)),
-         {:ok, circuit} <- recieve_created2(circuit) do
+         {:ok, circuit} <- receive_created2(circuit) do
       {:reply, :ok, circuit}
     else
       {:ok, _, _} ->
@@ -228,7 +228,7 @@ defmodule Garlic.Circuit do
 
     with {:ok, circuit} <- send_relay(circuit, 0, 14, payload),
          circuit <- put_in(circuit.routers, [router | circuit.routers]),
-         {:ok, circuit} <- recieve_relay_extended2(circuit) do
+         {:ok, circuit} <- receive_relay_extended2(circuit) do
       {:reply, :ok, circuit}
     else
       {:ok, _, _} ->
@@ -286,7 +286,7 @@ defmodule Garlic.Circuit do
     Logger.debug("Sending RELAY_ESTABLISH_RENDEZVOUS")
 
     with {:ok, circuit} <- send_relay(circuit, stream_id, 33, rendezvous_point.cookie),
-         {:ok, circuit} <- recieve_relay_rendezvous_established(circuit) do
+         {:ok, circuit} <- receive_relay_rendezvous_established(circuit) do
       {:reply, :ok, %{circuit | rendezvous_point: rendezvous_point}}
     else
       {:ok, _, _} ->
@@ -300,7 +300,7 @@ defmodule Garlic.Circuit do
   def handle_call({:await_rendezvous, _stream_id}, _from, circuit) do
     Logger.debug("Sending RELAY_ESTABLISH_RENDEZVOUS")
 
-    case recieve_relay_rendezvous2(circuit) do
+    case receive_relay_rendezvous2(circuit) do
       {:ok, circuit} ->
         {:reply, :ok, circuit}
 
@@ -318,7 +318,7 @@ defmodule Garlic.Circuit do
     payload = Crypto.HiddenService.build_introduction(rendezvous_point)
 
     with {:ok, circuit} <- send_relay(circuit, stream_id, 34, payload),
-         {:ok, circuit} <- recieve_relay_introduce_ack(circuit) do
+         {:ok, circuit} <- receive_relay_introduce_ack(circuit) do
       {:reply, :ok, circuit}
     else
       {:ok, _, _} ->
@@ -372,43 +372,43 @@ defmodule Garlic.Circuit do
 
   defp verify_certificate(_certificate, _event, _state), do: {:valid, nil}
 
-  defp recieve_versions(circuit) do
+  defp receive_versions(circuit) do
     with {:ok, {0, :versions}, circuit} <- recv_next_cell(circuit, "") do
-      Logger.debug("Recieved VERSIONS")
+      Logger.debug("Received VERSIONS")
 
       {:ok, circuit}
     end
   end
 
-  defp recieve_certs(circuit) do
+  defp receive_certs(circuit) do
     with {:ok, {0, :certs, _}, circuit} <- recv_next_cell(circuit, "") do
-      Logger.debug("Recieved CERTS")
+      Logger.debug("Received CERTS")
 
       {:ok, circuit}
     end
   end
 
-  defp recieve_auth_challenge(circuit) do
+  defp receive_auth_challenge(circuit) do
     with {:ok, {0, :auth_challenge}, circuit} <- recv_next_cell(circuit, "") do
-      Logger.debug("Recieved AUTH_CHALLENGE")
+      Logger.debug("Received AUTH_CHALLENGE")
 
       {:ok, circuit}
     end
   end
 
-  defp recieve_netinfo(circuit) do
+  defp receive_netinfo(circuit) do
     with {:ok, {0, :netinfo, {_, my_address, [their_address | _]}}, circuit} <-
            recv_next_cell(circuit, "") do
-      Logger.debug("Recieved NETINFO")
+      Logger.debug("Received NETINFO")
 
       {:ok, {their_address, my_address}, circuit}
     end
   end
 
-  defp recieve_created2(%Circuit{id: circuit_id} = circuit) do
+  defp receive_created2(%Circuit{id: circuit_id} = circuit) do
     with {:ok, {^circuit_id, :created2, {server_public_key, auth}}, circuit} <-
            recv_next_cell(circuit, "") do
-      Logger.debug("Recieved CREATED2")
+      Logger.debug("Received CREATED2")
 
       with {:ok, hop} <- Crypto.complete_ntor_handshake(circuit, server_public_key, auth) do
         {:ok, %{circuit | hops: [hop | circuit.hops]}}
@@ -416,16 +416,16 @@ defmodule Garlic.Circuit do
     end
   end
 
-  defp recieve_relay(%Circuit{id: circuit_id} = circuit) do
+  defp receive_relay(%Circuit{id: circuit_id} = circuit) do
     with {:ok, {^circuit_id, :relay, relay_cell}, circuit} <- recv_next_cell(circuit, "") do
       decode_relay_cell(circuit, relay_cell)
     end
   end
 
-  defp recieve_relay_extended2(%Circuit{hops: hops} = circuit) do
+  defp receive_relay_extended2(%Circuit{hops: hops} = circuit) do
     with {:ok, {_, :extended2, {server_public_key, auth}}, circuit} <-
-           recieve_relay(circuit) do
-      Logger.debug("Recieved RELAY_EXTENDED2")
+           receive_relay(circuit) do
+      Logger.debug("Received RELAY_EXTENDED2")
 
       with {:ok, hop} <- Crypto.complete_ntor_handshake(circuit, server_public_key, auth) do
         {:ok, %{circuit | hops: [hop | hops]}}
@@ -433,18 +433,18 @@ defmodule Garlic.Circuit do
     end
   end
 
-  defp recieve_relay_rendezvous_established(circuit) do
-    with {:ok, {_, :rendezvous_established}, circuit} <- recieve_relay(circuit) do
-      Logger.debug("Recieved RELAY_RENDEZVOUS_ESTABLISHED")
+  defp receive_relay_rendezvous_established(circuit) do
+    with {:ok, {_, :rendezvous_established}, circuit} <- receive_relay(circuit) do
+      Logger.debug("Received RELAY_RENDEZVOUS_ESTABLISHED")
 
       {:ok, circuit}
     end
   end
 
-  defp recieve_relay_rendezvous2(%Circuit{hops: hops} = circuit) do
+  defp receive_relay_rendezvous2(%Circuit{hops: hops} = circuit) do
     with {:ok, {_, :rendezvous2, {server_public_key, auth}}, circuit} <-
-           recieve_relay(circuit) do
-      Logger.debug("Recieved RELAY_RENDEZVOUZ2")
+           receive_relay(circuit) do
+      Logger.debug("Received RELAY_RENDEZVOUZ2")
 
       with {:ok, hop} <-
              Crypto.HiddenService.complete_ntor_handshake(circuit, server_public_key, auth) do
@@ -453,9 +453,9 @@ defmodule Garlic.Circuit do
     end
   end
 
-  defp recieve_relay_introduce_ack(circuit) do
-    with {:ok, {_, :introduce_ack, status}, circuit} <- recieve_relay(circuit) do
-      Logger.debug("Recieved RELAY_INTRODUCE_ACK #{status}")
+  defp receive_relay_introduce_ack(circuit) do
+    with {:ok, {_, :introduce_ack, status}, circuit} <- receive_relay(circuit) do
+      Logger.debug("Received RELAY_INTRODUCE_ACK #{status}")
 
       if status == :success do
         {:ok, circuit}
@@ -501,7 +501,7 @@ defmodule Garlic.Circuit do
   end
 
   defp handle_cell(%Circuit{id: circuit_id}, {circuit_id, :destroy, reason}) do
-    Logger.debug("Recieved DESTROY #{reason}")
+    Logger.debug("Received DESTROY #{reason}")
 
     {:error, reason}
   end
@@ -515,7 +515,7 @@ defmodule Garlic.Circuit do
   defp handle_cell(circuit, _), do: {:ok, circuit}
 
   defp handle_relay_cell(circuit, {stream_id, :connected, _, _, _}) do
-    Logger.debug("Recieved RELAY_CONNECTED ##{stream_id}")
+    Logger.debug("Received RELAY_CONNECTED ##{stream_id}")
 
     with %Circuit.Stream{from: from} <- circuit.streams[stream_id] do
       GenServer.reply(from, :ok)
@@ -541,7 +541,7 @@ defmodule Garlic.Circuit do
   end
 
   defp handle_relay_cell(circuit, {stream_id, :end, reason}) do
-    Logger.debug("Recieved RELAY_END ##{stream_id} #{reason}")
+    Logger.debug("Received RELAY_END ##{stream_id} #{reason}")
 
     with %Circuit.Stream{from: {pid, _}} <- circuit.streams[stream_id] do
       send(pid, {:ssl_closed, {self(), stream_id}})
@@ -551,7 +551,7 @@ defmodule Garlic.Circuit do
   end
 
   defp handle_relay_cell(circuit, {stream_id, :truncated, reason}) do
-    Logger.debug("Recieved RELAY_TRUNCATED ##{stream_id} #{reason}")
+    Logger.debug("Received RELAY_TRUNCATED ##{stream_id} #{reason}")
 
     %Circuit.Stream{from: {pid, _}} = circuit.streams[stream_id]
 
@@ -561,7 +561,7 @@ defmodule Garlic.Circuit do
   end
 
   defp handle_relay_cell(circuit, {stream_id, :sendme}) do
-    Logger.debug("Recieved RELAY_SENDME ##{stream_id}")
+    Logger.debug("Received RELAY_SENDME ##{stream_id}")
 
     {:ok, circuit}
   end
