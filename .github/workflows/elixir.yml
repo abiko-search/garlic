@@ -6,8 +6,8 @@ jobs:
     name: Elixir ${{matrix.elixir}} / OTP ${{matrix.otp}}
     strategy:
       matrix:
-        otp: [24.x]
-        elixir: [1.12.x]
+        otp: [26.x, 27.x]
+        elixir: [1.15.x, 1.18.x]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
