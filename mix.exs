@@ -5,7 +5,7 @@ defmodule Garlic.MixProject do
     [
       app: :garlic,
       version: "0.1.0-dev",
-      elixir: "~> 1.12",
+      elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description: description(),
@@ -18,16 +18,15 @@ defmodule Garlic.MixProject do
   def application do
     [
       mod: {Garlic, []},
-      applications: ~w(mint)a,
       extra_applications: ~w(logger inets crypto ssl)a
     ]
   end
 
   defp deps do
     [
-      {:mint, "~> 1.3"},
-      {:credo, "~> 1.5", only: ~w(dev test)a, runtime: false},
-      {:dialyxir, "~> 1.0", only: :dev, runtime: false}
+      {:mint, "~> 1.6"},
+      {:credo, "~> 1.7", only: ~w(dev test)a, runtime: false},
+      {:dialyxir, "~> 1.4", only: :dev, runtime: false}
     ]
   end
 

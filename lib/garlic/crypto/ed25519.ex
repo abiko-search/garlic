@@ -3,7 +3,7 @@ defmodule Garlic.Crypto.Ed25519 do
   Hand-crafted Ed25519 primitives and public key blinding
   """
 
-  use Bitwise
+  import Bitwise
 
   import Integer, only: [mod: 2]
 

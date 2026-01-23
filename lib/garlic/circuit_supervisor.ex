@@ -13,6 +13,8 @@ defmodule Garlic.CircuitSupervisor do
 
   @impl true
   def init(_init_arg) do
+    Process.flag(:trap_exit, true)
+
     DynamicSupervisor.init(strategy: :one_for_one)
   end
 end

@@ -1,7 +1,7 @@
 defmodule Garlic.Circuit do
   @moduledoc "Tor circuit"
 
-  use Bitwise
+  import Bitwise
   use GenServer
 
   require Logger
@@ -352,6 +352,8 @@ defmodule Garlic.Circuit do
   def handle_call({:setopts, opts}, _from, circuit) do
     {:reply, :ssl.setopts(circuit.socket, opts), circuit}
   end
+
+  # Handle terminate and report circuit
 
   @impl true
   def handle_info({:ssl, _, data}, circuit) do
