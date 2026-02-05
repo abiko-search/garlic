@@ -8,7 +8,8 @@ defmodule Garlic do
       Garlic.NetworkStatus,
       {Registry, name: Garlic.CircuitRegistry, keys: :unique},
       {Garlic.CircuitSupervisor, []},
-      {Garlic.CircuitManager, []}
+      {Garlic.CircuitManager, []},
+      {Garlic.CircuitPool, []}
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one)

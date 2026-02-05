@@ -1,7 +1,7 @@
 defmodule Garlic.CircuitManager do
   use GenServer
 
-  alias Garlic.{NetworkStatus, Circuit, CircuitSupervisor, CircuitRegistry}
+  alias Garlic.{NetworkStatus, Circuit, CircuitSupervisor, CircuitRegistry, CircuitPool}
 
   defstruct last_id: 1
 
@@ -17,8 +17,30 @@ defmodule Garlic.CircuitManager do
     {:ok, %__MODULE__{}}
   end
 
-  @spec get_circuit(binary, pos_integer) :: {:ok, pid} | {:error, any}
-  def get_circuit(domain, hops \\ 2) do
+  @doc """
+  Get a circuit for the given domain.
+
+  With `racing: true`, uses CircuitPool which races multiple parallel
+  circuits and returns the fastest. Otherwise falls back to legacy
+  single-circuit path.
+  """
+  @spec get_circuit(binary, keyword | pos_integer) :: {:ok, pid} | {:error, any}
+  def get_circuit(domain, opts \\ [])
+
+  def get_circuit(domain, opts) when is_list(opts) do
+    if Keyword.get(opts, :racing, false) do
+      CircuitPool.checkout(domain, opts)
+    else
+      hops = Keyword.get(opts, :hops, 2)
+      get_circuit_legacy(domain, hops)
+    end
+  end
+
+  def get_circuit(domain, hops) when is_integer(hops) do
+    get_circuit_legacy(domain, hops)
+  end
+
+  defp get_circuit_legacy(domain, hops) do
     case lookup_circuit(domain) do
       {pid, _} when is_pid(pid) ->
         {:ok, pid}
