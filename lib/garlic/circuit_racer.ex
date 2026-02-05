@@ -44,7 +44,7 @@ defmodule Garlic.CircuitRacer do
 
     start_time = System.monotonic_time(:millisecond)
 
-    with {:ok, intro_points} <- NetworkStatus.fetch_intoduction_points(domain) do
+    with {:ok, intro_points} <- fetch_intro_points(domain) do
       rp_relays = PathSelector.select_rendezvous_relays(count)
       intro_selected = PathSelector.select_intro_points(intro_points, count)
       pairs = PathSelector.build_race_paths(rp_relays, intro_selected, count)
@@ -205,5 +205,11 @@ defmodule Garlic.CircuitRacer do
         Task.shutdown(task, :brutal_kill)
       end
     end)
+  end
+
+  defp fetch_intro_points(domain) do
+    NetworkStatus.fetch_intoduction_points(domain)
+  catch
+    :exit, reason -> {:error, {:intro_fetch_failed, reason}}
   end
 end
