@@ -46,6 +46,26 @@ defmodule Garlic.NetworkStatus do
 
   def default_authorities(), do: Garlic.NetworkStatus.AuthorityList.default()
 
+  @doc """
+  Returns the active authority list.
+
+  Checks `Application.get_env(:garlic, :authorities)` first.
+  Accepts a list of `%Garlic.Router{}` structs or DirAuthority strings.
+  Falls back to the compiled-in Tor directory authorities.
+  """
+  def authorities do
+    case Application.get_env(:garlic, :authorities) do
+      nil ->
+        default_authorities()
+
+      authorities when is_list(authorities) ->
+        Enum.map(authorities, fn
+          %Garlic.Router{} = r -> r
+          line when is_binary(line) -> Garlic.NetworkStatus.AuthorityList.parse(line)
+        end)
+    end
+  end
+
   @spec pick_fast_routers(pos_integer) :: list(Garlic.Router.t())
   def pick_fast_routers(count) do
     GenServer.call(__MODULE__, {:pick_fast_routers, count})
@@ -260,7 +280,7 @@ defmodule Garlic.NetworkStatus do
   end
 
   defp download do
-    directory = Enum.random(default_authorities())
+    directory = Enum.random(authorities())
 
     Logger.info(
       "Connecting to directory authority #{directory.nickname} at #{:inet.ntoa(directory.ipv4)}"
@@ -298,7 +318,13 @@ defmodule Garlic.NetworkStatus do
   end
 
   defp cache_path do
-    Path.join(cache_directory(), "network_status")
+    suffix =
+      case Application.get_env(:garlic, :authorities) do
+        nil -> ""
+        auths -> "_" <> (:erlang.phash2(auths) |> Integer.to_string(16))
+      end
+
+    Path.join(cache_directory(), "network_status#{suffix}")
   end
 
   defp cache_directory do

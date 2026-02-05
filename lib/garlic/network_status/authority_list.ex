@@ -12,10 +12,26 @@ defmodule Garlic.NetworkStatus.AuthorityList do
     |> Macro.escape()
   end
 
+  @doc """
+  Parse a DirAuthority line at runtime.
+
+  Accepts the format used in torrc files:
+      "DAname orport=7000 v3ident=ABC123... 1.2.3.4:9030 FINGERPRINT..."
+
+  The optional "no-v2" token is ignored.
+  """
+  def parse(line) when is_binary(line) do
+    line
+    |> String.replace("DirAuthority ", "")
+    |> String.trim()
+    |> parse_authority_line()
+  end
+
   defp parse_authority_line(line) do
     {authority, properties} =
       line
-      |> String.split(" ")
+      |> String.split(~r/\s+/)
+      |> Stream.reject(&(&1 == "no-v2"))
       |> Stream.map(fn
         "orport=" <> onion_port ->
           {[], [onion_port: String.to_integer(onion_port)]}

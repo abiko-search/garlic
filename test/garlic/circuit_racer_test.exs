@@ -4,6 +4,11 @@ defmodule Garlic.CircuitRacerTest do
   alias Garlic.CircuitRacer
 
   describe "module" do
+    setup do
+      Code.ensure_loaded!(CircuitRacer)
+      :ok
+    end
+
     test "exports race/2" do
       assert function_exported?(CircuitRacer, :race, 2)
     end
