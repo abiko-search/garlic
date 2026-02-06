@@ -394,8 +394,8 @@ defmodule Garlic.NetworkStatus do
   end
 
   defp do_directory_request(directory, path) do
-    host = :inet.ntoa(directory.ipv4)
-    port = directory.directory_port
+    {ip, port} = Garlic.resolve_address(directory.ipv4, directory.directory_port)
+    host = :inet.ntoa(ip)
     url = ~c"http://#{host}:#{port}#{path}"
 
     opts = [timeout: @directory_timeout]

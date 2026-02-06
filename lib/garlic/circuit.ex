@@ -179,6 +179,8 @@ defmodule Garlic.Circuit do
         circuit
       ) do
     Logger.metadata(circuit_id: circuit.id &&& 0x0FFFFFFF)
+
+    {address, port} = Garlic.resolve_address(address, port)
     Logger.debug("Connecting to #{nickname} #{:inet.ntoa(address)}:#{port}")
 
     tcp_options = [:binary, send_timeout: @default_timeout, active: false]
