@@ -184,7 +184,7 @@ defmodule Garlic.Circuit do
     Logger.debug("Connecting to #{nickname} #{:inet.ntoa(address)}:#{port}")
 
     tcp_options = [:binary, send_timeout: @default_timeout, active: false]
-    ssl_options = [verify: :verify_peer, verify_fun: {&verify_certificate/3, nil}]
+    ssl_options = [verify: :verify_peer, verify_fun: {&verify_certificate/3, nil}, cacerts: []]
 
     with {:ok, socket} <- :gen_tcp.connect(address, port, tcp_options),
          {:ok, socket} <- :ssl.connect(socket, ssl_options),

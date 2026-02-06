@@ -145,12 +145,14 @@ defmodule Garlic.NetworkStatus do
               time_period_num
             )
 
-          :ets.select(
-            :hidden_service_directory,
-            [{{:"$1", :"$2"}, [{:>=, :"$1", index}], [:"$2"]}],
-            spread_store
-          )
-          |> elem(0)
+          case :ets.select(
+                 :hidden_service_directory,
+                 [{{:"$1", :"$2"}, [{:>=, :"$1", index}], [:"$2"]}],
+                 spread_store
+               ) do
+            {results, _} -> results
+            :"$end_of_table" -> []
+          end
         end
       )
 
