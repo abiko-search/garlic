@@ -97,7 +97,8 @@ defmodule Garlic.CircuitRacer do
 
     with {:ok, routers} <- build_path_to_rp(rp_relay, hops),
          {:ok, routers} <- NetworkStatus.fetch_router_descriptors(routers),
-         rendezvous_point <- RendezvousPoint.build(intro_point, rp_relay),
+         rp_with_key = List.last(routers),
+         rendezvous_point <- RendezvousPoint.build(intro_point, rp_with_key),
          {:ok, pid} <- Circuit.start(),
          :ok <- do_build_circuit(pid, routers),
          :ok <- Circuit.establish_rendezvous(pid, 1, rendezvous_point) do
