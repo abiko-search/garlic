@@ -85,7 +85,9 @@ defmodule Garlic.NetworkStatus do
     :ets.new(:introduction_points, ~w(ordered_set named_table public)a)
     :ets.new(:routers, ~w(ordered_set named_table public)a)
 
-    network_status = with nil <- read_cached(), do: download()
+    network_status =
+      (with nil <- read_cached(), do: download())
+      |> detect_testing_network()
 
     network_status.routers
     |> Stream.filter(&(not is_nil(&1.ntor_onion_key)))
@@ -334,11 +336,14 @@ defmodule Garlic.NetworkStatus do
   end
 
   def get_time_period_num(
-        %__MODULE__{time_period_length: time_period_length} = network_status,
-        unix_time \\ System.system_time(:second)
+        %__MODULE__{time_period_length: time_period_length, valid_after: valid_after} =
+          network_status,
+        unix_time \\ nil
       ) do
+    t = unix_time || valid_after || System.system_time(:second)
+
     div(
-      div(unix_time, 60) - 12 * div(get_voting_interval(network_status), 60),
+      div(t, 60) - 12 * div(get_voting_interval(network_status), 60),
       time_period_length
     )
   end
@@ -380,7 +385,8 @@ defmodule Garlic.NetworkStatus do
         %__MODULE__{
           current_shared_random: current_shared_random,
           previous_shared_random: previous_shared_random,
-          valid_after: valid_after
+          valid_after: valid_after,
+          time_period_length: time_period_length
         } = network_status
       ) do
     shared_random_start_time = get_shared_random_start_time(network_status)
@@ -389,9 +395,15 @@ defmodule Garlic.NetworkStatus do
       get_start_time_of_next_time_period(network_status, shared_random_start_time)
 
     if valid_after >= shared_random_start_time and valid_after < start_time_of_next_time_period do
-      previous_shared_random
+      previous_shared_random || current_shared_random ||
+        network_status
+        |> get_time_period_num()
+        |> Crypto.HiddenService.build_disaster_shared_random(time_period_length)
     else
-      current_shared_random
+      current_shared_random ||
+        network_status
+        |> get_time_period_num()
+        |> Crypto.HiddenService.build_disaster_shared_random(time_period_length)
     end
   end
 
@@ -419,22 +431,48 @@ defmodule Garlic.NetworkStatus do
   end
 
   defp request_from_next_directory([directory | tail], public_key, blinded_public_key) do
-    [router] = pick_fast_routers(1)
+    [router] =
+      pick_fast_routers(1)
+      |> Enum.reject(&(&1.fingerprint == directory.fingerprint))
+      |> case do
+        [] -> pick_fast_routers(2) |> Enum.reject(&(&1.fingerprint == directory.fingerprint))
+        routers -> routers
+      end
+      |> Enum.take(1)
+
     path = "/tor/hs/3/#{Base.encode64(blinded_public_key, padding: false)}"
 
     result =
       with {:ok, pid} <- Circuit.start(),
            :ok <- Circuit.build_circuit(pid, [router, directory]) do
-        pid
-        |> Client.request(1, "directory", 0, "GET", path, [], "")
-        |> Enum.join()
-        |> Crypto.HiddenService.Descriptor.decode(public_key, blinded_public_key)
+        response =
+          pid
+          |> Client.request(1, "directory", 0, "GET", path, [], "")
+          |> Enum.join()
+
+        Logger.debug(
+          "HSDir #{directory.nickname} response for #{Base.encode16(blinded_public_key, case: :lower)}: #{byte_size(response)} bytes"
+        )
+
+        Crypto.HiddenService.Descriptor.decode(response, public_key, blinded_public_key)
       end
 
-    with {:error, _} <- result do
+    with {:error, reason} <- result do
+      Logger.debug("HSDir #{directory.nickname} failed: #{inspect(reason)}")
       request_from_next_directory(tail, public_key, blinded_public_key)
     end
   end
 
   defp request_from_next_directory([], _, _), do: {:error, :introduction_points}
+
+  defp detect_testing_network(%__MODULE__{} = ns) do
+    voting_interval = get_voting_interval(ns)
+
+    if voting_interval < 3600 do
+      # SRV protocol run = 24 rounds × voting_interval
+      %{ns | time_period_length: div(24 * voting_interval, 60)}
+    else
+      ns
+    end
+  end
 end

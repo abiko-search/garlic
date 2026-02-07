@@ -17,7 +17,7 @@ defmodule Garlic.Crypto.Ed25519 do
          46_316_835_694_926_478_169_428_394_003_475_163_141_307_993_866_256_225_615_783_033_603_165_251_855_960}
 
   @spec base_string() :: binary
-  def base_string() do
+  def base_string do
     "(#{elem(@base, 0)}, #{elem(@base, 1)})"
   end
 
