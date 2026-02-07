@@ -49,19 +49,25 @@ defmodule Garlic.PathSelector do
   end
 
   defp ensure_subnet_diversity(routers, count) do
-    routers
-    |> Enum.reduce({[], MapSet.new()}, fn router, {selected, subnets} ->
-      subnet = subnet_key(router)
+    {diverse, _} =
+      Enum.reduce(routers, {[], MapSet.new()}, fn router, {selected, subnets} ->
+        subnet = subnet_key(router)
 
-      if MapSet.member?(subnets, subnet) do
-        {selected, subnets}
-      else
-        {[router | selected], MapSet.put(subnets, subnet)}
-      end
-    end)
-    |> elem(0)
-    |> Enum.reverse()
-    |> Enum.take(count)
+        if MapSet.member?(subnets, subnet) do
+          {selected, subnets}
+        else
+          {[router | selected], MapSet.put(subnets, subnet)}
+        end
+      end)
+
+    diverse = Enum.reverse(diverse)
+
+    if length(diverse) >= count do
+      Enum.take(diverse, count)
+    else
+      remaining = routers -- diverse
+      Enum.take(diverse ++ Enum.take(remaining, count - length(diverse)), count)
+    end
   end
 
   defp subnet_key(%{ipv4: {a, b, _, _}}), do: {a, b}

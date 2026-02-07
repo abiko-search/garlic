@@ -134,7 +134,7 @@ defmodule Garlic.Circuit do
          rendezvous_point <- RendezvousPoint.build(introduction_point, List.last(routers)),
          :ok <- do_build_circuit(pid, routers),
          :ok <- establish_rendezvous(pid, 1, rendezvous_point) do
-      spawn_link(fn -> do_introduction(rendezvous_point) end)
+      spawn(fn -> do_introduction(rendezvous_point) end)
       await_rendezvous(pid, 1)
     end
   end
@@ -300,8 +300,6 @@ defmodule Garlic.Circuit do
   end
 
   def handle_call({:await_rendezvous, _stream_id}, _from, circuit) do
-    Logger.debug("Sending RELAY_ESTABLISH_RENDEZVOUS")
-
     case receive_relay_rendezvous2(circuit) do
       {:ok, circuit} ->
         {:reply, :ok, circuit}

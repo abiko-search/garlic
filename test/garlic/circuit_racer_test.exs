@@ -13,8 +13,8 @@ defmodule Garlic.CircuitRacerTest do
       assert function_exported?(CircuitRacer, :race, 2)
     end
 
-    test "exports build_lane/5" do
-      assert function_exported?(CircuitRacer, :build_lane, 5)
+    test "exports build_lane/6" do
+      assert function_exported?(CircuitRacer, :build_lane, 6)
     end
   end
 

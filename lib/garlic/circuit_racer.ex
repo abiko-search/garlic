@@ -55,7 +55,7 @@ defmodule Garlic.CircuitRacer do
         |> Enum.map(fn {{rp_relay, intro_point}, index} ->
           task =
             Task.async(fn ->
-              build_lane(domain, rp_relay, intro_point, hops, index)
+              build_lane(domain, rp_relay, intro_point, intro_points, hops, index)
             end)
 
           {task, index}
@@ -89,28 +89,59 @@ defmodule Garlic.CircuitRacer do
   @doc """
   Build a single lane: 1-hop (or N-hop) circuit to RP, establish
   rendezvous, introduce, await service connection.
+
+  Tries each intro point in order — if INTRODUCE1 is rejected, rebuilds
+  the RP circuit and retries with the next intro point.
   """
-  @spec build_lane(binary(), Garlic.Router.t(), Garlic.IntroductionPoint.t(), pos_integer(), non_neg_integer()) ::
-          {:ok, pid(), non_neg_integer()} | {:error, term()}
-  def build_lane(_domain, rp_relay, intro_point, hops, index) do
-    Logger.debug("Lane #{index}: building #{hops}-hop circuit to RP #{rp_relay.nickname}")
+  @spec build_lane(
+          binary(),
+          Garlic.Router.t(),
+          Garlic.IntroductionPoint.t(),
+          [Garlic.IntroductionPoint.t()],
+          pos_integer(),
+          non_neg_integer()
+        ) :: {:ok, pid(), non_neg_integer()} | {:error, term()}
+  def build_lane(_domain, rp_relay, primary_intro, all_intros, hops, index) do
+    others = Enum.reject(all_intros, &(&1 == primary_intro))
+    candidates = [primary_intro | others]
 
-    with {:ok, routers} <- build_path_to_rp(rp_relay, hops),
-         {:ok, routers} <- NetworkStatus.fetch_router_descriptors(routers),
-         rp_with_key = List.last(routers),
-         rendezvous_point <- RendezvousPoint.build(intro_point, rp_with_key),
-         {:ok, pid} <- Circuit.start(),
-         :ok <- do_build_circuit(pid, routers),
-         :ok <- Circuit.establish_rendezvous(pid, 1, rendezvous_point) do
-      spawn_introduction(rendezvous_point)
-
-      case Circuit.await_rendezvous(pid, 1) do
-        :ok -> {:ok, pid, index}
-        {:error, reason} -> {:error, reason}
-      end
-    end
+    try_intro_points(rp_relay, candidates, hops, index)
   catch
     :exit, reason -> {:error, {:lane_crashed, reason}}
+  end
+
+  @rendezvous_timeout 30_000
+
+  defp try_intro_points(_rp_relay, [], _hops, _index), do: {:error, :all_intros_failed}
+
+  defp try_intro_points(rp_relay, [intro_point | rest], hops, index) do
+    Logger.debug("Lane #{index}: building #{hops}-hop circuit to RP #{rp_relay.nickname}")
+
+    result =
+      with {:ok, routers} <- build_path_to_rp(rp_relay, hops),
+           {:ok, routers} <- NetworkStatus.fetch_router_descriptors(routers),
+           rp_with_key = List.last(routers),
+           rendezvous_point <- RendezvousPoint.build(intro_point, rp_with_key),
+           {:ok, pid} <- Circuit.start(),
+           :ok <- do_build_circuit(pid, routers),
+           :ok <- Circuit.establish_rendezvous(pid, 1, rendezvous_point),
+           :ok <- do_introduction(rendezvous_point),
+           :ok <- Circuit.await_rendezvous(pid, 1, @rendezvous_timeout) do
+        {:ok, pid, index}
+      end
+
+    case result do
+      {:ok, _pid, _index} = success ->
+        success
+
+      {:error, reason} ->
+        Logger.debug("Lane #{index}: failed (#{inspect(reason)}), trying next intro point")
+        try_intro_points(rp_relay, rest, hops, index)
+    end
+  catch
+    :exit, reason ->
+      Logger.debug("Lane #{index}: crashed (#{inspect(reason)}), trying next intro point")
+      try_intro_points(rp_relay, rest, hops, index)
   end
 
   defp build_path_to_rp(rp_relay, 1), do: {:ok, [rp_relay]}
@@ -131,18 +162,19 @@ defmodule Garlic.CircuitRacer do
     end
   end
 
-  defp spawn_introduction(rendezvous_point) do
-    spawn(fn ->
-      with [router] <- NetworkStatus.pick_fast_routers(1),
-           {:ok, pid} <- Circuit.start(),
-           :ok <-
-             Circuit.build_circuit(pid, [
-               router,
-               rendezvous_point.introduction_point.router
-             ]) do
-        Circuit.introduce(pid, 1, rendezvous_point)
-      end
-    end)
+  defp do_introduction(rendezvous_point) do
+    with [router] <- NetworkStatus.pick_fast_routers(1),
+         {:ok, pid} <- Circuit.start(),
+         :ok <-
+           Circuit.build_circuit(pid, [
+             router,
+             rendezvous_point.introduction_point.router
+           ]),
+         :ok <- Circuit.introduce(pid, 1, rendezvous_point) do
+      :ok
+    end
+  catch
+    :exit, reason -> {:error, reason}
   end
 
   defp await_first_winner(lanes, timeout) do
