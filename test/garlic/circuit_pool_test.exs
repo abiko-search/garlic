@@ -1,100 +1,141 @@
 defmodule Garlic.CircuitPoolTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
 
   alias Garlic.CircuitPool
 
-  setup do
-    case GenServer.whereis(CircuitPool) do
-      nil ->
-        pool = start_supervised!(CircuitPool)
-        %{pool: pool}
+  defmodule FakeWorker do
+    @behaviour NimblePool
 
-      pid ->
-        # Pool already running from application supervisor — reset its state
-        :sys.replace_state(pid, fn _ ->
-          %CircuitPool{circuits: %{}, stats: %{checkouts: 0, hits: 0, misses: 0, races: 0}}
-        end)
+    @impl NimblePool
+    def init_pool(state), do: {:ok, state}
 
-        %{pool: pid}
+    @impl NimblePool
+    def init_worker(pool_state) do
+      pid = spawn_link(fn -> Process.sleep(:infinity) end)
+      worker = %{pid: pid, created_at: System.monotonic_time(:millisecond)}
+      {:ok, worker, pool_state}
+    end
+
+    @impl NimblePool
+    def handle_checkout(:checkout, _from, worker, pool_state) do
+      {:ok, worker.pid, worker, pool_state}
+    end
+
+    @impl NimblePool
+    def handle_checkin(_checkin_state, _from, worker, pool_state) do
+      {:ok, worker, pool_state}
+    end
+
+    @impl NimblePool
+    def terminate_worker(_reason, worker, pool_state) do
+      if Process.alive?(worker.pid), do: Process.exit(worker.pid, :kill)
+      {:ok, pool_state}
     end
   end
 
-  describe "stats/0" do
+  describe "stats" do
     test "returns initial stats" do
-      stats = CircuitPool.stats()
+      pool = start_pool!()
+      stats = CircuitPool.stats(pool)
 
-      assert stats.checkouts == 0
-      assert stats.hits == 0
-      assert stats.misses == 0
-      assert stats.races == 0
       assert stats.domains == 0
+      assert stats.checkouts == 0
+      assert stats.pool_starts == 0
+      assert stats.evictions == 0
     end
   end
 
-  describe "checkin/checkout without racing" do
-    test "checkin stores a circuit, checkout retrieves it" do
-      fake_circuit = spawn(fn -> Process.sleep(:infinity) end)
+  describe "ensure_pool" do
+    test "creates pool on first checkout for a domain" do
+      pool = start_pool!()
 
-      CircuitPool.checkin("test.onion", fake_circuit)
-      Process.sleep(10)
+      assert {:ok, pool_pid} = GenServer.call(pool, {:ensure_pool, "test.onion"})
+      assert is_pid(pool_pid)
+      assert Process.alive?(pool_pid)
 
-      # Direct GenServer call to pop — avoids triggering a real race on miss
-      state = :sys.get_state(CircuitPool)
-      assert Map.has_key?(state.circuits, "test.onion")
-
-      pids = Map.get(state.circuits, "test.onion", [])
-      assert fake_circuit in pids
-
-      Process.exit(fake_circuit, :kill)
+      stats = CircuitPool.stats(pool)
+      assert stats.domains == 1
+      assert stats.pool_starts == 1
     end
 
-    test "dead circuits are skipped on checkout" do
-      dead = spawn(fn -> :ok end)
-      Process.sleep(10)
+    test "reuses pool on subsequent calls for same domain" do
+      pool = start_pool!()
 
-      CircuitPool.checkin("test.onion", dead)
-      Process.sleep(10)
+      {:ok, pid1} = GenServer.call(pool, {:ensure_pool, "test.onion"})
+      {:ok, pid2} = GenServer.call(pool, {:ensure_pool, "test.onion"})
 
-      state = :sys.get_state(CircuitPool)
-      # The dead pid might or might not be cleaned up yet via :DOWN
-      # but pop_circuit should skip it
-      circuits = Map.get(state.circuits, "test.onion", [])
-      alive_count = Enum.count(circuits, &Process.alive?/1)
-      assert alive_count == 0
+      assert pid1 == pid2
+
+      stats = CircuitPool.stats(pool)
+      assert stats.pool_starts == 1
     end
 
-    test "monitors circuits and removes on exit" do
-      circuit = spawn(fn -> Process.sleep(:infinity) end)
+    test "creates separate pools for different domains" do
+      pool = start_pool!()
 
-      CircuitPool.checkin("test.onion", circuit)
-      Process.sleep(10)
+      {:ok, pid1} = GenServer.call(pool, {:ensure_pool, "a.onion"})
+      {:ok, pid2} = GenServer.call(pool, {:ensure_pool, "b.onion"})
 
-      state = :sys.get_state(CircuitPool)
-      assert "test.onion" in Map.keys(state.circuits)
+      assert pid1 != pid2
 
-      Process.exit(circuit, :kill)
-      Process.sleep(50)
-
-      state = :sys.get_state(CircuitPool)
-      pids = Map.get(state.circuits, "test.onion", [])
-      refute circuit in pids
+      stats = CircuitPool.stats(pool)
+      assert stats.domains == 2
+      assert stats.pool_starts == 2
     end
   end
 
-  describe "multiple domains" do
-    test "tracks circuits per domain independently" do
-      c1 = spawn(fn -> Process.sleep(:infinity) end)
-      c2 = spawn(fn -> Process.sleep(:infinity) end)
+  describe "domain limit enforcement" do
+    test "evicts LRU domain when max_domains reached" do
+      pool = start_pool!(max_domains: 2)
 
-      CircuitPool.checkin("a.onion", c1)
-      CircuitPool.checkin("b.onion", c2)
-      Process.sleep(10)
+      {:ok, _} = GenServer.call(pool, {:ensure_pool, "a.onion"})
+      {:ok, _} = GenServer.call(pool, {:ensure_pool, "b.onion"})
+      {:ok, _} = GenServer.call(pool, {:ensure_pool, "c.onion"})
 
-      stats = CircuitPool.stats()
+      stats = CircuitPool.stats(pool)
+      assert stats.domains == 2
+      assert stats.evictions == 1
+    end
+
+    test "touching a domain moves it to front of LRU" do
+      pool = start_pool!(max_domains: 2)
+
+      {:ok, pid_a} = GenServer.call(pool, {:ensure_pool, "a.onion"})
+      {:ok, _} = GenServer.call(pool, {:ensure_pool, "b.onion"})
+
+      # Touch a.onion — moves it to front
+      {:ok, ^pid_a} = GenServer.call(pool, {:ensure_pool, "a.onion"})
+
+      # Adding c.onion should evict b.onion (LRU), not a.onion
+      {:ok, _} = GenServer.call(pool, {:ensure_pool, "c.onion"})
+
+      stats = CircuitPool.stats(pool)
       assert stats.domains == 2
 
-      Process.exit(c1, :kill)
-      Process.exit(c2, :kill)
+      # a.onion should still have its pool alive
+      {:ok, pid_a2} = GenServer.call(pool, {:ensure_pool, "a.onion"})
+      assert pid_a == pid_a2
     end
+  end
+
+  describe "dead pool recovery" do
+    test "restarts pool if it died" do
+      pool = start_pool!()
+
+      {:ok, pid1} = GenServer.call(pool, {:ensure_pool, "test.onion"})
+      Process.exit(pid1, :kill)
+      Process.sleep(50)
+
+      {:ok, pid2} = GenServer.call(pool, {:ensure_pool, "test.onion"})
+      assert pid1 != pid2
+      assert Process.alive?(pid2)
+    end
+  end
+
+  defp start_pool!(opts \\ []) do
+    name = :"pool_#{System.unique_integer([:positive])}"
+    opts = Keyword.merge([name: name, pool_size: 1, max_domains: 25], opts)
+    {:ok, pid} = CircuitPool.start_link(opts)
+    pid
   end
 end

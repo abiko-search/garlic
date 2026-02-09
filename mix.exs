@@ -25,6 +25,7 @@ defmodule Garlic.MixProject do
   defp deps do
     [
       {:mint, "~> 1.6"},
+      {:nimble_pool, "~> 1.1"},
       {:credo, "~> 1.7", only: ~w(dev test)a, runtime: false},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false}
     ]
