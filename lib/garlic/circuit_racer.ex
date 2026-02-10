@@ -36,8 +36,14 @@ defmodule Garlic.CircuitRacer do
     * `:timeout` - per-lane timeout in ms (default: #{@default_timeout})
     * `:hops` - hops on client side to RP, 1 for speed (default: 1)
   """
+  @max_descriptor_retries 2
+
   @spec race(binary(), keyword()) :: race_result()
   def race(domain, opts \\ []) do
+    do_race(domain, opts, 0)
+  end
+
+  defp do_race(domain, opts, retry) do
     count = Keyword.get(opts, :count, @default_count)
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     hops = Keyword.get(opts, :hops, 1)
@@ -79,8 +85,16 @@ defmodule Garlic.CircuitRacer do
           Logger.info("Circuit race won by lane #{winner_index} in #{elapsed}ms")
           {:ok, pid, stats}
 
+        {:error, _reason} when retry < @max_descriptor_retries ->
+          Logger.info(
+            "All race lanes failed, invalidating descriptor and retrying (attempt #{retry + 1})"
+          )
+
+          NetworkStatus.invalidate_introduction_points(domain)
+          do_race(domain, opts, retry + 1)
+
         {:error, reason} ->
-          Logger.warning("All #{length(lanes)} race lanes failed: #{inspect(reason)}")
+          Logger.warning("All #{length(lanes)} race lanes failed after #{retry} retries: #{inspect(reason)}")
           {:error, reason}
       end
     end

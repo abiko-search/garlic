@@ -75,7 +75,12 @@ defmodule Garlic.Circuit.RelayCell do
     {:ok, {stream_id, :rendezvous_established}}
   end
 
-  def decode(<<40, _::16, stream_id::16, _::binary-size(4), 3::16, reason::16, _::binary>>) do
+  def decode(
+        <<40, _::16, stream_id::16, _::binary-size(4), data_length::16, data::binary-size(data_length),
+          _::binary>>
+      )
+      when data_length >= 2 do
+    <<reason::16, _::binary>> = data
     reason = Enum.at(~w(success failure bad_message cannot_relay)a, reason)
     {:ok, {stream_id, :introduce_ack, reason}}
   end

@@ -75,6 +75,10 @@ defmodule Garlic.NetworkStatus do
     GenServer.call(__MODULE__, {:fetch_intoduction_points, public_key}, timeout)
   end
 
+  def invalidate_introduction_points(domain) do
+    :ets.delete(:introduction_points, domain)
+  end
+
   def fetch_router_descriptors(routers, timeout \\ @default_timeout) do
     GenServer.call(__MODULE__, {:fetch_router_descriptors, routers}, timeout)
   end
