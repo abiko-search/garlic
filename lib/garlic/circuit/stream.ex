@@ -1,4 +1,5 @@
 defmodule Garlic.Circuit.Stream do
+  @moduledoc false
   defstruct window: 500,
             from: nil
 

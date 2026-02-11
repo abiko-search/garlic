@@ -1,4 +1,5 @@
 defmodule Garlic.CircuitSupervisor do
+  @moduledoc false
   alias Garlic.Circuit
   use DynamicSupervisor
 

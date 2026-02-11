@@ -1,4 +1,8 @@
 defmodule Garlic.Crypto do
+  @moduledoc false
+  alias Garlic.Circuit
+  alias Garlic.Crypto.Ed25519
+
   @protoid "ntor-curve25519-sha256-1"
 
   @spec digest_relay_cell(binary, iodata, :crypto.hash_state()) ::
@@ -18,8 +22,8 @@ defmodule Garlic.Crypto do
     {digest, stream_digest}
   end
 
-  @spec complete_ntor_handshake(%Garlic.Circuit{routers: nonempty_list}, binary, binary) ::
-          {:ok, Garlic.Circuit.Hop.t()} | {:error, atom}
+  @spec complete_ntor_handshake(Circuit.t(), binary, binary) ::
+          {:ok, Circuit.Hop.t()} | {:error, atom}
   def complete_ntor_handshake(
         %Garlic.Circuit{
           public_key: public_key,
@@ -84,13 +88,13 @@ defmodule Garlic.Crypto do
         [
           "Derive temporary signing key\0",
           public_key,
-          Garlic.Crypto.Ed25519.base_string(),
+          Ed25519.base_string(),
           "key-blind",
           <<time_period_num::64, time_period_length::64>>
         ]
       )
 
-    Garlic.Crypto.Ed25519.blind_public_key(public_key, param)
+    Ed25519.blind_public_key(public_key, param)
   end
 
   @spec build_subcredential(binary, binary) :: binary

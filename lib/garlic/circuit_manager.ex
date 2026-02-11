@@ -1,7 +1,8 @@
 defmodule Garlic.CircuitManager do
+  @moduledoc false
   use GenServer
 
-  alias Garlic.{NetworkStatus, Circuit, CircuitSupervisor, CircuitRegistry}
+  alias Garlic.{Circuit, CircuitRegistry, CircuitSupervisor, NetworkStatus}
 
   defstruct last_id: 1
 

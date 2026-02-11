@@ -1,4 +1,5 @@
 defmodule Garlic.Circuit.Hop do
+  @moduledoc false
   defstruct forward_digest: nil,
             backward_digest: nil,
             forward_cipher: nil,

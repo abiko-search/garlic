@@ -1,6 +1,8 @@
 defmodule Garlic.Util do
   @moduledoc false
 
+  alias Garlic.Crypto.Ed25519
+
   @spec parse_ip_address(binary) :: :inet.ip_address()
   def parse_ip_address(binary) do
     binary
@@ -32,7 +34,7 @@ defmodule Garlic.Util do
   def onion_address_valid?(<<address::binary-size(56), ".onion">>) do
     with {:ok, <<pubkey::binary-size(32), checksum::binary-size(2), 3>>} <-
            Base.decode32(String.upcase(address)),
-        true <- Garlic.Crypto.Ed25519.on_curve?(pubkey),
+        true <- Ed25519.on_curve?(pubkey),
          <<^checksum::binary-size(2), _::binary>> <-
            :crypto.hash(:sha3_256, [".onion checksum", pubkey, 3]) do
       true

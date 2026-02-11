@@ -1,4 +1,5 @@
 defmodule Garlic.Router.Descriptor do
+  @moduledoc false
   def parse(text) do
     routers =
       text

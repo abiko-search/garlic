@@ -1,7 +1,7 @@
 defmodule Garlic.PathSelectorTest do
   use ExUnit.Case
 
-  alias Garlic.{PathSelector, Router, IntroductionPoint}
+  alias Garlic.{IntroductionPoint, PathSelector, Router}
 
   describe "select_intro_points/2" do
     test "returns up to count intro points" do

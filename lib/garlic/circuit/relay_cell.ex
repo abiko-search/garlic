@@ -1,4 +1,5 @@
 defmodule Garlic.Circuit.RelayCell do
+  @moduledoc false
   # tor-spec.txt 6.1. Relay cells
 
   # The payload of each unencrypted RELAY cell consists of:

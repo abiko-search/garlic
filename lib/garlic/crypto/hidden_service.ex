@@ -1,5 +1,6 @@
 defmodule Garlic.Crypto.HiddenService do
-  alias Garlic.{Crypto, Circuit, Router, IntroductionPoint, RendezvousPoint}
+  @moduledoc false
+  alias Garlic.{Circuit, Crypto, IntroductionPoint, RendezvousPoint, Router}
 
   @protoid "tor-hs-ntor-curve25519-sha3-256-1"
 

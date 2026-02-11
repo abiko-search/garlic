@@ -183,9 +183,8 @@ defmodule Garlic.CircuitRacer do
            Circuit.build_circuit(pid, [
              router,
              rendezvous_point.introduction_point.router
-           ]),
-         :ok <- Circuit.introduce(pid, 1, rendezvous_point) do
-      :ok
+           ]) do
+      Circuit.introduce(pid, 1, rendezvous_point)
     end
   catch
     :exit, reason -> {:error, reason}
@@ -204,45 +203,45 @@ defmodule Garlic.CircuitRacer do
 
   defp do_await(lanes, tasks, deadline, failed) do
     remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+    results = Task.yield_many(tasks, remaining)
 
-    case Task.yield_many(tasks, remaining) do
-      results ->
-        winner =
-          Enum.find_value(results, fn
-            {task, {:ok, {:ok, pid, index}}} when is_pid(pid) ->
-              {task, pid, index}
+    case find_winner(results) do
+      {_task, pid, index} ->
+        {:ok, pid, index, failed}
 
-            _ ->
-              nil
-          end)
+      nil ->
+        retry_pending(lanes, results, deadline, failed)
+    end
+  end
 
-        case winner do
-          {_task, pid, index} ->
-            {:ok, pid, index, failed}
+  defp find_winner(results) do
+    Enum.find_value(results, fn
+      {task, {:ok, {:ok, pid, index}}} when is_pid(pid) -> {task, pid, index}
+      _ -> nil
+    end)
+  end
 
-          nil ->
-            new_failed =
-              Enum.count(results, fn
-                {_, {:ok, {:error, _}}} -> true
-                {_, {:exit, _}} -> true
-                _ -> false
-              end)
+  defp retry_pending(lanes, results, deadline, failed) do
+    new_failed =
+      Enum.count(results, fn
+        {_, {:ok, {:error, _}}} -> true
+        {_, {:exit, _}} -> true
+        _ -> false
+      end)
 
-            still_pending =
-              Enum.filter(lanes, fn {task, _} ->
-                Enum.any?(results, fn
-                  {^task, nil} -> true
-                  _ -> false
-                end)
-              end)
+    still_pending =
+      Enum.filter(lanes, fn {task, _} ->
+        Enum.any?(results, fn
+          {^task, nil} -> true
+          _ -> false
+        end)
+      end)
 
-            if still_pending == [] do
-              {:error, :all_lanes_failed}
-            else
-              pending_tasks = Enum.map(still_pending, &elem(&1, 0))
-              do_await(still_pending, pending_tasks, deadline, failed + new_failed)
-            end
-        end
+    if still_pending == [] do
+      {:error, :all_lanes_failed}
+    else
+      pending_tasks = Enum.map(still_pending, &elem(&1, 0))
+      do_await(still_pending, pending_tasks, deadline, failed + new_failed)
     end
   end
 

@@ -1,4 +1,5 @@
 defmodule Garlic.Mint.Client do
+  @moduledoc false
   def request(pid, stream_id, host, port, method, path, headers, body) do
     Stream.resource(
       fn ->

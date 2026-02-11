@@ -4,11 +4,12 @@ defmodule Garlic.NetworkStatus do
   # TODO: make autoupdate
 
   require Logger
-  require Garlic.NetworkStatus.AuthorityList
+  alias Garlic.NetworkStatus.AuthorityList
+  require AuthorityList
 
   use GenServer
 
-  alias Garlic.{Crypto, NetworkStatus.Document, Circuit, Mint.Client}
+  alias Garlic.{Circuit, Crypto, Mint.Client, NetworkStatus.Document}
 
   defstruct [
     :previous_shared_random,
@@ -44,7 +45,7 @@ defmodule Garlic.NetworkStatus do
     GenServer.start_link(__MODULE__, nil, name: Garlic.NetworkStatus)
   end
 
-  def default_authorities(), do: Garlic.NetworkStatus.AuthorityList.default()
+  def default_authorities, do: AuthorityList.default()
 
   @doc """
   Returns the active authority list.
@@ -61,7 +62,7 @@ defmodule Garlic.NetworkStatus do
       authorities when is_list(authorities) ->
         Enum.map(authorities, fn
           %Garlic.Router{} = r -> r
-          line when is_binary(line) -> Garlic.NetworkStatus.AuthorityList.parse(line)
+          line when is_binary(line) -> AuthorityList.parse(line)
         end)
     end
   end
@@ -95,7 +96,7 @@ defmodule Garlic.NetworkStatus do
 
     network_status.routers
     |> Stream.filter(&(not is_nil(&1.ntor_onion_key)))
-    |> Enum.map(&:ets.insert(:routers, {&1.fingerprint, &1}))
+    |> Enum.each(&:ets.insert(:routers, {&1.fingerprint, &1}))
 
     for router <- Stream.filter(network_status.routers, &("HSDir" in &1.flags)) do
       directory_index =
@@ -207,14 +208,14 @@ defmodule Garlic.NetworkStatus do
       fast_directories = get_fast_directories(network_status)
 
       response =
-        if Enum.count(fingerprints) > 0 do
+        if fingerprints != [] do
           with {:ok, descriptors} <- do_fetch_router_descriptors(fast_directories, fingerprints) do
             descriptors_map = for d <- descriptors, into: %{}, do: {d.fingerprint, d}
 
             routers =
               Enum.map(routers, &struct(&1, Map.get(descriptors_map, &1.fingerprint, %{})))
 
-            Enum.map(routers, &:ets.insert(:routers, {&1.fingerprint, &1}))
+            Enum.each(routers, &:ets.insert(:routers, {&1.fingerprint, &1}))
 
             {:ok, routers}
           end

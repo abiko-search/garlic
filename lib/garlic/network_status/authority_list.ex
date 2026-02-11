@@ -1,7 +1,7 @@
 defmodule Garlic.NetworkStatus.AuthorityList do
   @moduledoc false
 
-  defmacro default() do
+  defmacro default do
     "./priv/auth_dirs.inc"
     |> File.read!()
     |> String.replace(~s("\n), ~s("<>))

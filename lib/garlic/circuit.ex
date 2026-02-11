@@ -6,7 +6,7 @@ defmodule Garlic.Circuit do
 
   require Logger
 
-  alias Garlic.{Crypto, Circuit, Router, IntroductionPoint, RendezvousPoint, NetworkStatus}
+  alias Garlic.{Circuit, Crypto, IntroductionPoint, NetworkStatus, RendezvousPoint, Router}
 
   defstruct [
     :socket,
@@ -536,9 +536,8 @@ defmodule Garlic.Circuit do
       |> update_in(&decrement_window/1)
       |> decrement_window()
 
-    with {:ok, circuit} <- consider_sending_circuit_sendme(circuit),
-         {:ok, circuit} <- consider_sending_stream_sendme(circuit, stream_id) do
-      {:ok, circuit}
+    with {:ok, circuit} <- consider_sending_circuit_sendme(circuit) do
+      consider_sending_stream_sendme(circuit, stream_id)
     end
   end
 

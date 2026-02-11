@@ -1,4 +1,5 @@
 defmodule Garlic do
+  @moduledoc false
   use Application
 
   require Logger
