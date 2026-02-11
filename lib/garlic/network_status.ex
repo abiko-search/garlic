@@ -90,6 +90,11 @@ defmodule Garlic.NetworkStatus do
     :ets.new(:introduction_points, ~w(ordered_set named_table public)a)
     :ets.new(:routers, ~w(ordered_set named_table public)a)
 
+    {:ok, nil, {:continue, :bootstrap}}
+  end
+
+  @impl true
+  def handle_continue(:bootstrap, _state) do
     network_status =
       (with nil <- read_cached(), do: download())
       |> detect_testing_network()
@@ -110,7 +115,7 @@ defmodule Garlic.NetworkStatus do
       :ets.insert(:hidden_service_directory, {directory_index, router})
     end
 
-    {:ok, network_status}
+    {:noreply, network_status}
   end
 
   @impl true
