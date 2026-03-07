@@ -8,6 +8,7 @@ defmodule Garlic.MixProject do
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      aliases: aliases(),
       description: description(),
       package: package(),
       name: "Garlic",
@@ -27,7 +28,21 @@ defmodule Garlic.MixProject do
       {:mint, "~> 1.6"},
       {:nimble_pool, "~> 1.1"},
       {:credo, "~> 1.7", only: ~w(dev test)a, runtime: false},
-      {:dialyxir, "~> 1.4", only: :dev, runtime: false}
+      {:dialyxir, "~> 1.4", only: :dev, runtime: false},
+      {:ex_dna, "~> 1.0", only: [:dev, :test], runtime: false},
+      {:ex_slop, "~> 0.1", only: [:dev, :test], runtime: false}
+    ]
+  end
+
+  defp aliases do
+    [
+      ci: [
+        "compile --warnings-as-errors",
+        "cmd MIX_ENV=test mix test",
+        "credo --strict --min-priority high",
+        "dialyzer",
+        "ex_dna"
+      ]
     ]
   end
 

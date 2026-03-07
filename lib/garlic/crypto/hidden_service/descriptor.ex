@@ -33,6 +33,7 @@ defmodule Garlic.Crypto.HiddenService.Descriptor do
 
           {:ok, introduction_points}
         rescue
+          # credo:disable-for-next-line ExSlop.Check.Warning.BlanketRescue
           _ -> {:error, :descriptor_format}
         end
 
