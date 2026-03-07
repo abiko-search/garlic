@@ -4,7 +4,7 @@ defmodule Garlic.MixProject do
   def project do
     [
       app: :garlic,
-      version: "0.1.0",
+      version: "0.2.0",
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -27,6 +27,7 @@ defmodule Garlic.MixProject do
     [
       {:mint, "~> 1.6"},
       {:nimble_pool, "~> 1.1"},
+      {:telemetry, "~> 1.2"},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: ~w(dev test)a, runtime: false},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},

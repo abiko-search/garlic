@@ -84,6 +84,12 @@ defmodule Garlic.NetworkStatus do
     GenServer.call(__MODULE__, {:fetch_router_descriptors, routers}, timeout)
   end
 
+  @doc "Network status snapshot for observability."
+  @spec status() :: map()
+  def status do
+    GenServer.call(__MODULE__, :status)
+  end
+
   @impl true
   def init(_) do
     :ets.new(:hidden_service_directory, ~w(ordered_set named_table)a)
@@ -119,6 +125,23 @@ defmodule Garlic.NetworkStatus do
   end
 
   @impl true
+  def handle_call(:status, _from, network_status) do
+    router_count = :ets.info(:routers, :size)
+    hsdir_count = :ets.info(:hidden_service_directory, :size)
+    cached_descriptors = :ets.info(:introduction_points, :size)
+
+    status = %{
+      valid_after: network_status.valid_after,
+      valid_until: network_status.valid_until,
+      fresh_until: network_status.fresh_until,
+      router_count: router_count,
+      hsdir_count: hsdir_count,
+      cached_descriptors: cached_descriptors
+    }
+
+    {:reply, status, network_status}
+  end
+
   def handle_call({:pick_fast_routers, count}, _from, network_status) do
     routers =
       network_status

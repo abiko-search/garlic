@@ -82,6 +82,12 @@ defmodule Garlic.CircuitRacer do
             lanes_failed: failed_count
           }
 
+          :telemetry.execute(
+            [:garlic, :circuit_race, :complete],
+            %{build_time_ms: elapsed, lanes_attempted: length(lanes), lanes_failed: failed_count},
+            %{domain: domain, winner_index: winner_index}
+          )
+
           Logger.info("Circuit race won by lane #{winner_index} in #{elapsed}ms")
           {:ok, pid, stats}
 
@@ -94,6 +100,12 @@ defmodule Garlic.CircuitRacer do
           do_race(domain, opts, retry + 1)
 
         {:error, reason} ->
+          :telemetry.execute(
+            [:garlic, :circuit_race, :failure],
+            %{build_time_ms: elapsed, lanes_attempted: length(lanes)},
+            %{domain: domain, reason: reason}
+          )
+
           Logger.warning("All #{length(lanes)} race lanes failed after #{retry} retries: #{inspect(reason)}")
           {:error, reason}
       end

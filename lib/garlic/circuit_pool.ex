@@ -79,11 +79,21 @@ defmodule Garlic.CircuitPool do
     GenServer.call(name, :stats)
   end
 
+  @doc "Per-domain pool info for observability."
+  @spec pool_info(GenServer.server()) :: [map()]
+  def pool_info(name \\ __MODULE__) do
+    GenServer.call(name, :pool_info)
+  end
+
   # -- GenServer --
 
   @impl true
   def init(opts) do
     {:ok, sup} = DynamicSupervisor.start_link(strategy: :one_for_one)
+
+    if :ets.whereis(:circuit_pool_workers) == :undefined do
+      :ets.new(:circuit_pool_workers, [:named_table, :public, :set])
+    end
 
     state = %{
       supervisor: sup,
@@ -106,6 +116,7 @@ defmodule Garlic.CircuitPool do
         if Process.alive?(pid) do
           state = touch_domain(state, domain)
           state = update_in(state.stats.checkouts, &(&1 + 1))
+          :telemetry.execute([:garlic, :pool, :checkout], %{count: 1}, %{domain: domain})
           {:reply, {:ok, pid}, state}
         else
           state = remove_pool(state, domain)
@@ -122,8 +133,32 @@ defmodule Garlic.CircuitPool do
       state.stats
       |> Map.put(:domains, map_size(state.pools))
       |> Map.put(:pool_size, state.pool_size)
+      |> Map.put(:max_domains, state.max_domains)
 
     {:reply, stats, state}
+  end
+
+  def handle_call(:pool_info, _from, state) do
+    info =
+      Enum.map(state.pools, fn {domain, pid} ->
+        workers =
+          case :ets.lookup(:circuit_pool_workers, domain) do
+            [{_, worker_list}] -> worker_list
+            [] -> []
+          end
+
+        lru_position = Enum.find_index(state.domain_order, &(&1 == domain))
+
+        %{
+          domain: domain,
+          pool_pid: pid,
+          alive: Process.alive?(pid),
+          workers: workers,
+          lru_position: lru_position
+        }
+      end)
+
+    {:reply, info, state}
   end
 
   @impl true
@@ -177,6 +212,7 @@ defmodule Garlic.CircuitPool do
         lru_domain ->
           Logger.debug("CircuitPool: evicting LRU pool for #{lru_domain}")
           state = update_in(state.stats.evictions, &(&1 + 1))
+          :telemetry.execute([:garlic, :pool, :eviction], %{count: 1}, %{domain: lru_domain})
           evict_pool(state, lru_domain)
       end
     else

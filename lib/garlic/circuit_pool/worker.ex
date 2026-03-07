@@ -61,6 +61,7 @@ defmodule Garlic.CircuitPool.Worker do
   def handle_checkout(:checkout, _from, worker, pool_state) do
     if Process.alive?(worker.pid) and healthy?(worker, pool_state) do
       worker = %{worker | stream_count: worker.stream_count + 1}
+      report_worker_health(worker, pool_state)
       {:ok, worker.pid, worker, pool_state}
     else
       {:remove, :unhealthy, pool_state}
@@ -71,6 +72,7 @@ defmodule Garlic.CircuitPool.Worker do
   def handle_checkin({:ok, latency_ms}, _from, worker, pool_state) do
     latencies = Enum.take([latency_ms | worker.latencies], 10)
     worker = %{worker | latencies: latencies, consecutive_failures: 0}
+    report_worker_health(worker, pool_state)
 
     if healthy?(worker, pool_state) do
       {:ok, worker, pool_state}
@@ -81,6 +83,7 @@ defmodule Garlic.CircuitPool.Worker do
 
   def handle_checkin(:error, _from, worker, pool_state) do
     worker = %{worker | consecutive_failures: worker.consecutive_failures + 1}
+    report_worker_health(worker, pool_state)
 
     if worker.consecutive_failures >= pool_state.max_consecutive_failures do
       {:remove, :too_many_failures, pool_state}
@@ -90,6 +93,8 @@ defmodule Garlic.CircuitPool.Worker do
   end
 
   def handle_checkin(:ok, _from, worker, pool_state) do
+    report_worker_health(worker, pool_state)
+
     if healthy?(worker, pool_state) do
       {:ok, worker, pool_state}
     else
@@ -124,6 +129,8 @@ defmodule Garlic.CircuitPool.Worker do
   def terminate_worker(_reason, %{pid: nil}, pool_state), do: {:ok, pool_state}
 
   def terminate_worker(_reason, worker, pool_state) do
+    cleanup_worker_health(worker)
+
     if Process.alive?(worker.pid) do
       try do
         Garlic.Circuit.close(worker.pid)
@@ -134,6 +141,60 @@ defmodule Garlic.CircuitPool.Worker do
     end
 
     {:ok, pool_state}
+  end
+
+  defp report_worker_health(worker, pool_state) do
+    if :ets.whereis(:circuit_pool_workers) != :undefined do
+      now = System.monotonic_time(:millisecond)
+
+      avg_latency =
+        case worker.latencies do
+          [] -> nil
+          latencies -> Enum.sum(latencies) / length(latencies)
+        end
+
+      entry = %{
+        pid: worker.pid,
+        stream_count: worker.stream_count,
+        avg_latency_ms: avg_latency,
+        consecutive_failures: worker.consecutive_failures,
+        created_at: worker.created_at,
+        age_ms: now - worker.created_at,
+        healthy: healthy?(worker, pool_state)
+      }
+
+      existing =
+        case :ets.lookup(:circuit_pool_workers, worker.domain) do
+          [{_, list}] -> list
+          [] -> []
+        end
+
+      updated =
+        case Enum.find_index(existing, &(&1.pid == worker.pid)) do
+          nil -> [entry | existing]
+          idx -> List.replace_at(existing, idx, entry)
+        end
+
+      :ets.insert(:circuit_pool_workers, {worker.domain, updated})
+    end
+  end
+
+  defp cleanup_worker_health(worker) do
+    if :ets.whereis(:circuit_pool_workers) != :undefined do
+      case :ets.lookup(:circuit_pool_workers, worker.domain) do
+        [{_, list}] ->
+          updated = Enum.reject(list, &(&1.pid == worker.pid))
+
+          if updated == [] do
+            :ets.delete(:circuit_pool_workers, worker.domain)
+          else
+            :ets.insert(:circuit_pool_workers, {worker.domain, updated})
+          end
+
+        [] ->
+          :ok
+      end
+    end
   end
 
   defp healthy?(worker, config) do
