@@ -34,7 +34,10 @@ defmodule Garlic.Crypto.HiddenService.Descriptor do
           {:ok, introduction_points}
         rescue
           # credo:disable-for-next-line ExSlop.Check.Warning.BlanketRescue
-          _ -> {:error, :descriptor_format}
+          e ->
+            require Logger
+            Logger.warning("Descriptor decode error: #{Exception.message(e)}")
+            {:error, :descriptor_format}
         end
 
       _ ->

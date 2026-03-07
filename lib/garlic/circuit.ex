@@ -284,10 +284,10 @@ defmodule Garlic.Circuit do
     end
   end
 
-  def handle_call({:relay_establish_rendezvous, stream_id, rendezvous_point}, _from, circuit) do
+  def handle_call({:relay_establish_rendezvous, _stream_id, rendezvous_point}, _from, circuit) do
     Logger.debug("Sending RELAY_ESTABLISH_RENDEZVOUS")
 
-    with {:ok, circuit} <- send_relay(circuit, stream_id, 33, rendezvous_point.cookie),
+    with {:ok, circuit} <- send_relay(circuit, 0, 33, rendezvous_point.cookie),
          {:ok, circuit} <- receive_relay_rendezvous_established(circuit) do
       {:reply, :ok, %{circuit | rendezvous_point: rendezvous_point}}
     else
@@ -312,12 +312,12 @@ defmodule Garlic.Circuit do
     end
   end
 
-  def handle_call({:relay_introduce, stream_id, rendezvous_point}, _from, circuit) do
+  def handle_call({:relay_introduce, _stream_id, rendezvous_point}, _from, circuit) do
     Logger.debug("Sending RELAY_INTRODUCE1")
 
     payload = Crypto.HiddenService.build_introduction(rendezvous_point)
 
-    with {:ok, circuit} <- send_relay(circuit, stream_id, 34, payload),
+    with {:ok, circuit} <- send_relay(circuit, 0, 34, payload),
          {:ok, circuit} <- receive_relay_introduce_ack(circuit) do
       {:reply, :ok, circuit}
     else
@@ -657,20 +657,18 @@ defmodule Garlic.Circuit do
 
     {digest, forward_digest} = Crypto.digest_relay_cell(head, data, forward_digest)
 
-    command = if Enum.count(hops) > 1, do: 3, else: 9
+    command = if command_id in [6, 14], do: 9, else: 3
 
-    packet = [
-      <<circuit_id::32, command>>,
+    ciphertext =
       Enum.reduce(
         hops,
-        [head, digest, data],
+        IO.iodata_to_binary([head, digest, data]),
         fn %Circuit.Hop{forward_cipher: forward_cipher}, data ->
           :crypto.crypto_update(forward_cipher, data)
         end
       )
-    ]
 
-    with :ok <- :ssl.send(socket, packet) do
+    with :ok <- :ssl.send(socket, [<<circuit_id::32, command>>, ciphertext]) do
       hops = [%{last_hop | forward_digest: forward_digest} | prev_hops]
 
       {:ok, %{circuit | hops: hops}}
