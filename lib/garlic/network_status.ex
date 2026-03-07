@@ -98,8 +98,8 @@ defmodule Garlic.NetworkStatus do
     :ets.new(:hidden_service_directory, ~w(ordered_set named_table)a)
     :ets.new(:introduction_points, ~w(ordered_set named_table public)a)
     :ets.new(:routers, ~w(ordered_set named_table public)a)
-    :ets.new(:fast_routers, ~w(set named_table public read_concurrency)a)
-    :ets.new(:fast_directories, ~w(set named_table public read_concurrency)a)
+    :ets.new(:fast_routers, [:set, :named_table, :public, {:read_concurrency, true}])
+    :ets.new(:fast_directories, [:set, :named_table, :public, {:read_concurrency, true}])
 
     {:ok, nil, {:continue, :bootstrap}}
   end
