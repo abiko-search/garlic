@@ -436,22 +436,10 @@ defmodule Garlic.Circuit do
   end
 
   defp receive_relay_rendezvous_established(circuit) do
-    case receive_relay(circuit) do
-      {:ok, {_, :rendezvous_established}, circuit} ->
-        Logger.debug("Received RELAY_RENDEZVOUS_ESTABLISHED")
-        {:ok, circuit}
+    with {:ok, {_, :rendezvous_established}, circuit} <- receive_relay(circuit) do
+      Logger.debug("Received RELAY_RENDEZVOUS_ESTABLISHED")
 
-      {:ok, {stream_id, cell_type} = cell, circuit} ->
-        Logger.error("ESTABLISH_RENDEZVOUS got unexpected cell: #{inspect(cell_type)} stream=#{stream_id}")
-        {:ok, cell, circuit}
-
-      {:ok, {stream_id, cell_type, data} = cell, circuit} ->
-        Logger.error("ESTABLISH_RENDEZVOUS got unexpected cell: #{inspect(cell_type)} stream=#{stream_id} data=#{inspect(data)}")
-        {:ok, cell, circuit}
-
-      {:error, reason} = err ->
-        Logger.error("ESTABLISH_RENDEZVOUS receive failed: #{inspect(reason)}")
-        err
+      {:ok, circuit}
     end
   end
 
