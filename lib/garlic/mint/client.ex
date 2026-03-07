@@ -1,5 +1,9 @@
 defmodule Garlic.Mint.Client do
   @moduledoc false
+
+  # Mint supports custom transport modules as scheme but its typespec doesn't reflect that
+  @dialyzer {:nowarn_function, request: 8}
+
   def request(pid, stream_id, host, port, method, path, headers, body) do
     Stream.resource(
       fn ->

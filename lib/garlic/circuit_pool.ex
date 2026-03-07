@@ -49,13 +49,11 @@ defmodule Garlic.CircuitPool do
   `{result, checkin_state}`. The `result` is returned to the caller.
   """
   @spec checkout!(String.t(), (pid() -> {term(), term()})) :: term()
-  @spec checkout!(String.t(), keyword(), (pid() -> {term(), term()})) :: term()
-  def checkout!(domain, opts_or_fun, fun_or_nil \\ nil)
-
-  def checkout!(domain, fun, nil) when is_function(fun, 1) do
+  def checkout!(domain, fun) when is_function(fun, 1) do
     checkout!(domain, [], fun)
   end
 
+  @spec checkout!(String.t(), keyword(), (pid() -> {term(), term()})) :: term()
   def checkout!(domain, opts, fun) when is_list(opts) and is_function(fun, 1) do
     name = Keyword.get(opts, :pool, __MODULE__)
     timeout = Keyword.get(opts, :timeout, @pool_timeout)
