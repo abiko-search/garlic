@@ -69,7 +69,10 @@ defmodule Garlic.NetworkStatus do
 
   @spec pick_fast_routers(pos_integer) :: list(Garlic.Router.t())
   def pick_fast_routers(count) do
-    GenServer.call(__MODULE__, {:pick_fast_routers, count})
+    case :ets.lookup(:fast_routers, :pool) do
+      [{:pool, routers}] -> Enum.take_random(routers, count)
+      [] -> []
+    end
   end
 
   def fetch_intoduction_points(public_key, timeout \\ @default_timeout) do
@@ -95,6 +98,8 @@ defmodule Garlic.NetworkStatus do
     :ets.new(:hidden_service_directory, ~w(ordered_set named_table)a)
     :ets.new(:introduction_points, ~w(ordered_set named_table public)a)
     :ets.new(:routers, ~w(ordered_set named_table public)a)
+    :ets.new(:fast_routers, ~w(set named_table public read_concurrency)a)
+    :ets.new(:fast_directories, ~w(set named_table public read_concurrency)a)
 
     {:ok, nil, {:continue, :bootstrap}}
   end
@@ -120,6 +125,8 @@ defmodule Garlic.NetworkStatus do
 
       :ets.insert(:hidden_service_directory, {directory_index, router})
     end
+
+    update_fast_pools(network_status)
 
     {:noreply, network_status}
   end
@@ -150,15 +157,6 @@ defmodule Garlic.NetworkStatus do
     }
 
     {:reply, status, network_status}
-  end
-
-  def handle_call({:pick_fast_routers, count}, _from, network_status) do
-    routers =
-      network_status
-      |> get_fast_routers()
-      |> Enum.take_random(count)
-
-    {:reply, routers, network_status}
   end
 
   def handle_call(
@@ -302,6 +300,11 @@ defmodule Garlic.NetworkStatus do
     |> Enum.sort_by(&Map.get(&1.bandwidth, "Bandwidth"))
     |> Enum.reverse()
     |> Enum.take(@router_pool_size)
+  end
+
+  defp update_fast_pools(network_status) do
+    :ets.insert(:fast_routers, {:pool, get_fast_routers(network_status)})
+    :ets.insert(:fast_directories, {:pool, get_fast_directories(network_status)})
   end
 
   defp do_fetch_router_descriptors(directories, fingerprints, retries \\ 3)
