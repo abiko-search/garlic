@@ -126,15 +126,25 @@ defmodule Garlic.NetworkStatus do
 
   @impl true
   def handle_call(:status, _from, network_status) do
-    router_count = :ets.info(:routers, :size)
     hsdir_count = :ets.info(:hidden_service_directory, :size)
     cached_descriptors = :ets.info(:introduction_points, :size)
+
+    fast_routers =
+      network_status.routers
+      |> Enum.filter(&(not is_nil(&1.ntor_onion_key)))
+      |> length()
+
+    guard_count = Enum.count(network_status.routers, &("Guard" in &1.flags))
+    exit_count = Enum.count(network_status.routers, &("Exit" in &1.flags))
 
     status = %{
       valid_after: network_status.valid_after,
       valid_until: network_status.valid_until,
       fresh_until: network_status.fresh_until,
-      router_count: router_count,
+      router_count: length(network_status.routers),
+      fast_router_count: fast_routers,
+      guard_count: guard_count,
+      exit_count: exit_count,
       hsdir_count: hsdir_count,
       cached_descriptors: cached_descriptors
     }
