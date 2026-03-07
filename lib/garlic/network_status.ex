@@ -174,52 +174,64 @@ defmodule Garlic.NetworkStatus do
     spread_store = Map.get(network_status.params, "hsdir_spread_store", 4)
     n_replicas = Map.get(network_status.params, "hsdir_n_replicas", 2)
     time_period_num = get_time_period_num(network_status)
-    blinded_public_key = Crypto.blind_public_key(public_key, time_period_length, time_period_num)
 
-    responsible_directories =
-      Enum.flat_map(
-        1..n_replicas,
-        fn replica ->
-          index =
-            Crypto.HiddenService.build_index(
-              blinded_public_key,
-              replica,
-              time_period_length,
-              time_period_num
-            )
+    blinded_public_key =
+      try do
+        Crypto.blind_public_key(public_key, time_period_length, time_period_num)
+      rescue
+        ArgumentError -> :invalid
+      end
 
-          case :ets.select(
-                 :hidden_service_directory,
-                 [{{:"$1", :"$2"}, [{:>=, :"$1", index}], [:"$2"]}],
-                 spread_store
-               ) do
-            {results, _} -> results
-            :"$end_of_table" -> []
-          end
-        end
-      )
-
-    case :ets.lookup(:introduction_points, domain) do
-      [{_, introduction_points, expire_at}] when network_status.valid_after < expire_at ->
-        {:reply, {:ok, introduction_points}, network_status}
+    case blinded_public_key do
+      :invalid ->
+        {:reply, {:error, :invalid_onion_key}, network_status}
 
       _ ->
-        expire_at = get_start_time_of_next_time_period(network_status)
+        responsible_directories =
+          Enum.flat_map(
+            1..n_replicas,
+            fn replica ->
+              index =
+                Crypto.HiddenService.build_index(
+                  blinded_public_key,
+                  replica,
+                  time_period_length,
+                  time_period_num
+                )
 
-        spawn fn ->
-          response =
-            responsible_directories
-            |> Enum.shuffle()
-            |> request_from_next_directory(public_key, blinded_public_key)
+              case :ets.select(
+                     :hidden_service_directory,
+                     [{{:"$1", :"$2"}, [{:>=, :"$1", index}], [:"$2"]}],
+                     spread_store
+                   ) do
+                {results, _} -> results
+                :"$end_of_table" -> []
+              end
+            end
+          )
 
-          with {:ok, introduction_points} <- response do
-            :ets.insert(:introduction_points, {domain, introduction_points, expire_at})
-          end
+        case :ets.lookup(:introduction_points, domain) do
+          [{_, introduction_points, expire_at}] when network_status.valid_after < expire_at ->
+            {:reply, {:ok, introduction_points}, network_status}
 
-          GenServer.reply(from, response)
+          _ ->
+            expire_at = get_start_time_of_next_time_period(network_status)
+
+            spawn fn ->
+              response =
+                responsible_directories
+                |> Enum.shuffle()
+                |> request_from_next_directory(public_key, blinded_public_key)
+
+              with {:ok, introduction_points} <- response do
+                :ets.insert(:introduction_points, {domain, introduction_points, expire_at})
+              end
+
+              GenServer.reply(from, response)
+            end
+
+            {:noreply, network_status}
         end
-
-        {:noreply, network_status}
     end
   end
 
