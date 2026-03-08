@@ -164,10 +164,15 @@ defmodule Garlic.CircuitRacer do
       rendezvous_point = RendezvousPoint.build(intro_point, rp_with_key)
 
       {:ok, pid} = Circuit.start()
+      Process.link(pid)
 
       case do_build_and_rendezvous(pid, routers, rendezvous_point, index) do
-        :ok -> {:ok, pid, index}
+        :ok ->
+          Process.unlink(pid)
+          {:ok, pid, index}
+
         {:error, _} = err ->
+          Process.unlink(pid)
           if Process.alive?(pid), do: GenServer.stop(pid, :normal)
           err
       end
