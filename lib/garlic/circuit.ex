@@ -353,7 +353,14 @@ defmodule Garlic.Circuit do
     {:reply, :ssl.setopts(circuit.socket, opts), circuit}
   end
 
-  # Handle terminate and report circuit
+  @impl true
+  def terminate(_reason, %__MODULE__{socket: socket}) when socket != nil do
+    :ssl.close(socket)
+  rescue
+    _ -> :ok
+  end
+
+  def terminate(_reason, _state), do: :ok
 
   @impl true
   def handle_info({:ssl, _, data}, circuit) do
@@ -366,10 +373,10 @@ defmodule Garlic.Circuit do
     end
   end
 
-  def handle_info({:ssl_closed, _}, _) do
+  def handle_info({:ssl_closed, _}, circuit) do
     Logger.debug("Connection closed")
 
-    {:stop, :normal, :closed, nil}
+    {:stop, :normal, circuit}
   end
 
   defp verify_certificate(_certificate, _event, _state), do: {:valid, nil}
