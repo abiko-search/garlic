@@ -169,6 +169,7 @@ defmodule Garlic.Circuit do
 
   @impl true
   def init(id) do
+    Process.flag(:trap_exit, true)
     {:ok, %Circuit{id: id ||| 0x80000000}}
   end
 
@@ -377,6 +378,11 @@ defmodule Garlic.Circuit do
     Logger.debug("Connection closed")
 
     {:stop, :normal, circuit}
+  end
+
+  def handle_info({:EXIT, _pid, reason}, circuit) do
+    Logger.debug("Linked process exited: #{inspect(reason)}")
+    {:stop, reason, circuit}
   end
 
   defp upgrade_to_tls(tcp_socket, ssl_options) do
