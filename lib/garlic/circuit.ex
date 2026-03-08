@@ -186,9 +186,9 @@ defmodule Garlic.Circuit do
     tcp_options = [:binary, send_timeout: @default_timeout, active: false]
     ssl_options = [verify: :verify_peer, verify_fun: {&verify_certificate/3, nil}, cacerts: []]
 
-    with {:ok, socket} <- :gen_tcp.connect(address, port, tcp_options),
-         {:ok, socket} <- :ssl.connect(socket, ssl_options),
-         {:ok, circuit} <- send_versions(%{circuit | socket: socket, routers: [router]}),
+    with {:ok, tcp_socket} <- :gen_tcp.connect(address, port, tcp_options),
+         {:ok, ssl_socket} <- upgrade_to_tls(tcp_socket, ssl_options),
+         {:ok, circuit} <- send_versions(%{circuit | socket: ssl_socket, routers: [router]}),
          {:ok, circuit} <- receive_versions(circuit),
          {:ok, circuit} <- receive_certs(circuit),
          {:ok, circuit} <- receive_auth_challenge(circuit),
@@ -377,6 +377,15 @@ defmodule Garlic.Circuit do
     Logger.debug("Connection closed")
 
     {:stop, :normal, circuit}
+  end
+
+  defp upgrade_to_tls(tcp_socket, ssl_options) do
+    case :ssl.connect(tcp_socket, ssl_options) do
+      {:ok, _} = ok -> ok
+      {:error, _} = err ->
+        :gen_tcp.close(tcp_socket)
+        err
+    end
   end
 
   defp verify_certificate(_certificate, _event, _state), do: {:valid, nil}
