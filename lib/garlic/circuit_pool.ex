@@ -38,8 +38,8 @@ defmodule Garlic.CircuitPool do
   @default_max_domains 1000
   @pool_timeout 60_000
   @domain_health_table :circuit_pool_domain_health
-  @base_backoff_ms 5_000
-  @max_backoff_ms 300_000
+  @base_backoff_ms 30_000
+  @max_backoff_ms 600_000
   @max_domain_failures 10
 
   def start_link(opts \\ []) do
