@@ -278,7 +278,12 @@ defmodule Garlic.CircuitRacer do
   defp teardown_losers(lanes, winner_index) do
     Enum.each(lanes, fn {task, index} ->
       if index != winner_index do
-        Task.shutdown(task, :brutal_kill)
+        case Task.shutdown(task, 1000) do
+          {:ok, {:ok, pid, _}} when is_pid(pid) ->
+            if Process.alive?(pid), do: GenServer.stop(pid, :normal)
+          _ ->
+            :ok
+        end
       end
     end)
   end
