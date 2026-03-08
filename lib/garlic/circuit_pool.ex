@@ -35,7 +35,7 @@ defmodule Garlic.CircuitPool do
   require Logger
 
   @default_pool_size 2
-  @default_max_domains 1000
+  @default_max_domains 100
   @pool_timeout 60_000
   @domain_health_table :circuit_pool_domain_health
   @base_backoff_ms 30_000
@@ -269,7 +269,7 @@ defmodule Garlic.CircuitPool do
       worker: {Garlic.CircuitPool.Worker, {domain, worker_opts}},
       pool_size: state.pool_size,
       lazy: true,
-      worker_idle_timeout: 300_000
+      worker_idle_timeout: 60_000
     ]
 
     case DynamicSupervisor.start_child(state.supervisor, {NimblePool, pool_opts}) do
