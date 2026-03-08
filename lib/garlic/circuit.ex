@@ -486,6 +486,9 @@ defmodule Garlic.Circuit do
 
   defp recv_next_cell(%Circuit{buffer: buffer, socket: socket} = circuit, data) do
     case Circuit.Cell.decode(buffer <> data) do
+      {:ok, :padding, tail} ->
+        recv_next_cell(%{circuit | buffer: ""}, tail)
+
       {:ok, cell, tail} ->
         {:ok, cell, %{circuit | buffer: tail}}
 
@@ -501,6 +504,9 @@ defmodule Garlic.Circuit do
 
   defp handle_data(%Circuit{buffer: buffer} = circuit, data) do
     case Circuit.Cell.decode(buffer <> data) do
+      {:ok, :padding, tail} ->
+        handle_data(%{circuit | buffer: ""}, tail)
+
       {:ok, cell, tail} ->
         with {:ok, circuit} <- handle_cell(circuit, cell) do
           handle_data(%{circuit | buffer: ""}, tail)

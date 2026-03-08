@@ -48,6 +48,16 @@ defmodule Garlic.Circuit.Cell do
               {timestamp :: pos_integer, my_address :: tuple, their_address :: tuple}}, binary}
           | {:ok, {Circuit.id(), :created2, {server_public_key :: binary, auth :: binary}},
              binary}
+  def decode(<<_circuit_id::32, 0, _padding::binary-size(509), tail::binary>>) do
+    {:ok, :padding, tail}
+  end
+
+  def decode(
+        <<_circuit_id::32, 128, length::16, _payload::binary-size(length), tail::binary>>
+      ) do
+    {:ok, :padding, tail}
+  end
+
   def decode(<<circuit_id::32, 3, inner_cell::binary-size(509), tail::binary>>) do
     {:ok, {circuit_id, :relay, inner_cell}, tail}
   end
