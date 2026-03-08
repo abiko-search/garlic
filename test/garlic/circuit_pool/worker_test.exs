@@ -97,13 +97,13 @@ defmodule Garlic.CircuitPool.WorkerTest do
       assert {:ok, ^worker} = Worker.handle_ping(worker, config)
     end
 
-    test "dead circuit removed on ping" do
+    test "dead circuit marked nil on ping" do
       pid = spawn(fn -> :ok end)
       Process.sleep(10)
       worker = build_worker(pid: pid)
       config = build_config()
 
-      assert {:remove, :dead} = Worker.handle_ping(worker, config)
+      assert {:ok, %{pid: nil}} = Worker.handle_ping(worker, config)
     end
 
     test "aged circuit removed on ping" do

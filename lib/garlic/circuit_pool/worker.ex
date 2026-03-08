@@ -105,10 +105,10 @@ defmodule Garlic.CircuitPool.Worker do
   @impl NimblePool
   def handle_ping(%{pid: nil} = worker, _pool_state), do: {:ok, worker}
 
-  def handle_ping(worker, pool_state) do
+  def handle_ping(%{pid: pid} = worker, pool_state) when is_pid(pid) do
     cond do
-      not Process.alive?(worker.pid) ->
-        {:remove, :dead}
+      not Process.alive?(pid) ->
+        {:ok, %{worker | pid: nil}}
 
       not healthy?(worker, pool_state) ->
         {:remove, :unhealthy}
@@ -118,9 +118,11 @@ defmodule Garlic.CircuitPool.Worker do
     end
   end
 
+  def handle_ping(worker, _pool_state), do: {:ok, worker}
+
   @impl NimblePool
-  def handle_info({:DOWN, _ref, :process, pid, _reason}, %{pid: pid}) do
-    {:remove, :circuit_down}
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, worker) do
+    {:ok, %{worker | pid: nil}}
   end
 
   def handle_info(_msg, worker), do: {:ok, worker}
