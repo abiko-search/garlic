@@ -260,8 +260,13 @@ defmodule Garlic.CircuitPool do
   end
 
   def handle_info(:reap_ssl, state) do
-    reaped = reap_orphaned_ssl_processes()
-    if reaped > 0, do: Logger.info("Reaped #{reaped} orphaned SSL processes")
+    reaped_ssl = reap_orphaned_ssl_processes()
+    reaped_gs = reap_orphaned_genservers()
+    total = reaped_ssl + reaped_gs
+
+    if total > 0,
+      do: Logger.info("Reaped #{reaped_ssl} orphaned circuits, #{reaped_gs} empty gen_servers")
+
     schedule_ssl_reaper()
     {:noreply, state}
   end
@@ -333,6 +338,26 @@ defmodule Garlic.CircuitPool do
 
   defp touch_domain(state, domain) do
     %{state | domain_order: [domain | state.domain_order -- [domain]]}
+  end
+
+  defp reap_orphaned_genservers do
+    Process.list()
+    |> Enum.reduce(0, fn pid, count ->
+      with {:current_function, {:gen_server, :loop, 7}} <- Process.info(pid, :current_function),
+           {:links, []} <- Process.info(pid, :links),
+           %Garlic.Circuit{} <- safe_get_state(pid) do
+        Process.exit(pid, :kill)
+        count + 1
+      else
+        _ -> count
+      end
+    end)
+  end
+
+  defp safe_get_state(pid) do
+    :sys.get_state(pid, 50)
+  catch
+    _, _ -> nil
   end
 
   defp schedule_ssl_reaper do
