@@ -188,20 +188,26 @@ defmodule Garlic.Circuit do
     ssl_options = [verify: :verify_peer, verify_fun: {&verify_certificate/3, nil}, cacerts: []]
 
     with {:ok, tcp_socket} <- :gen_tcp.connect(address, port, tcp_options),
-         {:ok, ssl_socket} <- upgrade_to_tls(tcp_socket, ssl_options),
-         {:ok, circuit} <- send_versions(%{circuit | socket: ssl_socket, routers: [router]}),
-         {:ok, circuit} <- receive_versions(circuit),
-         {:ok, circuit} <- receive_certs(circuit),
-         {:ok, circuit} <- receive_auth_challenge(circuit),
-         {:ok, {their_address, my_address}, circuit} <- receive_netinfo(circuit),
-         {:ok, circuit} <- send_netinfo(circuit, their_address, my_address),
-         {:ok, circuit} <- send_create2(generate_keypair(circuit)),
-         {:ok, circuit} <- receive_created2(circuit) do
-      {:reply, :ok, circuit}
-    else
-      {:ok, _, _} ->
-        {:stop, :protocol, circuit}
+         {:ok, ssl_socket} <- upgrade_to_tls(tcp_socket, ssl_options) do
+      circuit = %{circuit | socket: ssl_socket, routers: [router]}
 
+      with {:ok, circuit} <- send_versions(circuit),
+           {:ok, circuit} <- receive_versions(circuit),
+           {:ok, circuit} <- receive_certs(circuit),
+           {:ok, circuit} <- receive_auth_challenge(circuit),
+           {:ok, {their_address, my_address}, circuit} <- receive_netinfo(circuit),
+           {:ok, circuit} <- send_netinfo(circuit, their_address, my_address),
+           {:ok, circuit} <- send_create2(generate_keypair(circuit)),
+           {:ok, circuit} <- receive_created2(circuit) do
+        {:reply, :ok, circuit}
+      else
+        {:ok, _, _} ->
+          {:stop, :protocol, circuit}
+
+        {:error, reason} ->
+          {:stop, reason, circuit}
+      end
+    else
       {:error, reason} ->
         {:stop, reason, circuit}
     end
