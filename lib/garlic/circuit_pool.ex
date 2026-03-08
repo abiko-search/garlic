@@ -25,7 +25,7 @@ defmodule Garlic.CircuitPool do
 
       Garlic.CircuitPool.start_link(
         pool_size: 2,           # circuits per domain (default: 2)
-        max_domains: 25,        # global domain limit (default: 25)
+        max_domains: 200,       # global domain limit (default: 200)
         race_opts: [count: 2, hops: 2]
       )
   """
@@ -35,7 +35,7 @@ defmodule Garlic.CircuitPool do
   require Logger
 
   @default_pool_size 2
-  @default_max_domains 25
+  @default_max_domains 200
   @pool_timeout 60_000
 
   def start_link(opts \\ []) do
