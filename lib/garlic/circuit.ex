@@ -356,12 +356,28 @@ defmodule Garlic.Circuit do
 
   @impl true
   def terminate(_reason, %__MODULE__{socket: socket}) when socket != nil do
-    :ssl.close(socket)
+    close_ssl_socket(socket)
   rescue
     _ -> :ok
   end
 
   def terminate(_reason, _state), do: :ok
+
+  defp close_ssl_socket(socket) do
+    # Capture linked SSL processes before closing
+    ssl_pids =
+      case Process.info(self(), :links) do
+        {:links, links} -> Enum.filter(links, &is_pid/1)
+        _ -> []
+      end
+
+    :ssl.close(socket)
+
+    # OTP 27 ssl_gen_statem may linger after :ssl.close — force exit
+    Enum.each(ssl_pids, fn pid ->
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
+    end)
+  end
 
   @impl true
   def handle_info({:ssl, _, data}, circuit) do
