@@ -203,18 +203,16 @@ defmodule Garlic.CircuitRacer do
 
   defp do_introduction(rendezvous_point) do
     with [router] <- NetworkStatus.pick_fast_routers(1),
-         {:ok, pid} <- Circuit.start(),
-         :ok <-
-           Circuit.build_circuit(pid, [
-             router,
-             rendezvous_point.introduction_point.router
-           ]) do
-      result = Circuit.introduce(pid, 1, rendezvous_point)
-      GenServer.stop(pid, :normal)
-      result
+         {:ok, pid} <- Circuit.start() do
+      try do
+        with :ok <- Circuit.build_circuit(pid, [router, rendezvous_point.introduction_point.router]) do
+          Circuit.introduce(pid, 1, rendezvous_point)
+        end
+      after
+        if Process.alive?(pid), do: GenServer.stop(pid, :normal)
+      end
     else
-      error ->
-        error
+      error -> error
     end
   catch
     :exit, reason -> {:error, reason}
