@@ -143,20 +143,7 @@ defmodule Garlic.CircuitRacer do
   defp try_intro_points(rp_relay, [intro_point | rest], hops, index) do
     Logger.debug("Lane #{index}: building #{hops}-hop circuit to RP #{rp_relay.nickname}")
 
-    result =
-      with {:ok, routers} <- build_path_to_rp(rp_relay, hops),
-           {:ok, routers} <- NetworkStatus.fetch_router_descriptors(routers),
-           rp_with_key = List.last(routers),
-           rendezvous_point <- RendezvousPoint.build(intro_point, rp_with_key),
-           {:ok, pid} <- Circuit.start(),
-           :ok <- do_build_circuit(pid, routers),
-           :ok <- Circuit.establish_rendezvous(pid, 1, rendezvous_point),
-           :ok <- do_introduction(rendezvous_point),
-           :ok <- Circuit.await_rendezvous(pid, 1, @rendezvous_timeout) do
-        {:ok, pid, index}
-      end
-
-    case result do
+    case build_rendezvous_circuit(rp_relay, intro_point, hops, index) do
       {:ok, _pid, _index} = success ->
         success
 
@@ -168,6 +155,32 @@ defmodule Garlic.CircuitRacer do
     :exit, reason ->
       Logger.debug("Lane #{index}: crashed (#{inspect(reason)}), trying next intro point")
       try_intro_points(rp_relay, rest, hops, index)
+  end
+
+  defp build_rendezvous_circuit(rp_relay, intro_point, hops, index) do
+    with {:ok, routers} <- build_path_to_rp(rp_relay, hops),
+         {:ok, routers} <- NetworkStatus.fetch_router_descriptors(routers) do
+      rp_with_key = List.last(routers)
+      rendezvous_point = RendezvousPoint.build(intro_point, rp_with_key)
+
+      {:ok, pid} = Circuit.start()
+
+      case do_build_and_rendezvous(pid, routers, rendezvous_point, index) do
+        :ok -> {:ok, pid, index}
+        {:error, _} = err ->
+          if Process.alive?(pid), do: GenServer.stop(pid, :normal)
+          err
+      end
+    end
+  end
+
+  defp do_build_and_rendezvous(pid, routers, rendezvous_point, _index) do
+    with :ok <- do_build_circuit(pid, routers),
+         :ok <- Circuit.establish_rendezvous(pid, 1, rendezvous_point),
+         :ok <- do_introduction(rendezvous_point),
+         :ok <- Circuit.await_rendezvous(pid, 1, @rendezvous_timeout) do
+      :ok
+    end
   end
 
   defp build_path_to_rp(rp_relay, 1), do: {:ok, [rp_relay]}
@@ -196,7 +209,12 @@ defmodule Garlic.CircuitRacer do
              router,
              rendezvous_point.introduction_point.router
            ]) do
-      Circuit.introduce(pid, 1, rendezvous_point)
+      result = Circuit.introduce(pid, 1, rendezvous_point)
+      GenServer.stop(pid, :normal)
+      result
+    else
+      error ->
+        error
     end
   catch
     :exit, reason -> {:error, reason}
