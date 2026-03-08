@@ -349,7 +349,7 @@ defmodule Garlic.Circuit do
   end
 
   def handle_call(:close, _from, circuit) do
-    {:reply, :ssl.close(circuit.socket), circuit}
+    {:stop, :normal, :ok, circuit}
   end
 
   def handle_call({:getopts, opts}, _from, circuit) do
