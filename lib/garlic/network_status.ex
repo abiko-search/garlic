@@ -162,14 +162,17 @@ defmodule Garlic.NetworkStatus do
   def handle_call(
         {:fetch_intoduction_points, domain},
         from,
-        %__MODULE__{time_period_length: time_period_length} = network_status
+        %__MODULE__{} = network_status
       ) do
-    public_key =
+    raw =
       domain
       |> String.replace_trailing(".onion", "")
       |> String.upcase()
-      |> Base.decode32!()
-      |> binary_part(0, 32)
+
+    case Base.decode32(raw) do
+      {:ok, decoded} when byte_size(decoded) >= 32 ->
+        public_key = binary_part(decoded, 0, 32)
+        %__MODULE__{time_period_length: time_period_length} = network_status
 
     spread_store = Map.get(network_status.params, "hsdir_spread_store", 4)
     n_replicas = Map.get(network_status.params, "hsdir_n_replicas", 2)
@@ -233,10 +236,15 @@ defmodule Garlic.NetworkStatus do
             {:noreply, network_status}
         end
     end
+
+      _ ->
+        {:reply, {:error, :invalid_onion_address}, network_status}
+    end
   end
 
   def handle_call({:fetch_router_descriptors, routers}, from, network_status) do
     spawn fn ->
+
       routers =
         for router <- routers do
           case :ets.lookup(:routers, router.fingerprint) do
