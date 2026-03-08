@@ -511,16 +511,20 @@ defmodule Garlic.NetworkStatus do
     result =
       with {:ok, pid} <- Circuit.start(),
            :ok <- Circuit.build_circuit(pid, [router, directory]) do
-        response =
-          pid
-          |> Client.request(1, "directory", 0, "GET", path, [], "")
-          |> Enum.join()
+        try do
+          response =
+            pid
+            |> Client.request(1, "directory", 0, "GET", path, [], "")
+            |> Enum.join()
 
-        Logger.debug(
-          "HSDir #{directory.nickname} response for #{Base.encode16(blinded_public_key, case: :lower)}: #{byte_size(response)} bytes"
-        )
+          Logger.debug(
+            "HSDir #{directory.nickname} response for #{Base.encode16(blinded_public_key, case: :lower)}: #{byte_size(response)} bytes"
+          )
 
-        Crypto.HiddenService.Descriptor.decode(response, public_key, blinded_public_key)
+          Crypto.HiddenService.Descriptor.decode(response, public_key, blinded_public_key)
+        after
+          if Process.alive?(pid), do: GenServer.stop(pid, :normal)
+        end
       end
 
     with {:error, reason} <- result do
