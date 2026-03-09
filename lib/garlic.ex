@@ -10,7 +10,8 @@ defmodule Garlic do
       {Registry, name: Garlic.CircuitRegistry, keys: :unique},
       {Garlic.CircuitSupervisor, []},
       {Garlic.CircuitManager, []},
-      {Garlic.CircuitPool, Application.get_env(:garlic, :circuit_pool, [])}
+      {Garlic.CircuitPool, Application.get_env(:garlic, :circuit_pool, [])},
+      Garlic.DescriptorPrefetcher
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one)
