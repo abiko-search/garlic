@@ -24,7 +24,7 @@ defmodule Garlic.DescriptorPrefetcher do
 
   require Logger
 
-  @max_concurrency 20
+  @max_concurrency 5
   @fetch_timeout 15_000
 
   def start_link(opts \\ []) do
