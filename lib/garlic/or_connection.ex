@@ -100,7 +100,7 @@ defmodule Garlic.ORConnection do
     with {:ok, tcp_socket} <- :gen_tcp.connect(address, port, tcp_options),
          {:ok, ssl_socket} <- upgrade_to_tls(tcp_socket, ssl_options),
          {:ok, state} <- do_handshake(%{state | socket: ssl_socket}),
-         :ok <- :ssl.setopts(ssl_socket, active: true) do
+         :ok <- :ssl.setopts(ssl_socket, active: :once) do
       {:reply, :ok, %{state | status: :connected}}
     else
       {:error, reason} ->
@@ -136,10 +136,14 @@ defmodule Garlic.ORConnection do
   end
 
   @impl true
-  def handle_info({:ssl, _, data}, state) do
+  def handle_info({:ssl, _, data}, %{socket: socket} = state) do
     case dispatch_cells(state, state.buffer <> data) do
-      {:ok, state} -> {:noreply, state}
-      {:error, reason} -> {:stop, reason, state}
+      {:ok, state} ->
+        :ssl.setopts(socket, active: :once)
+        {:noreply, state}
+
+      {:error, reason} ->
+        {:stop, reason, state}
     end
   end
 

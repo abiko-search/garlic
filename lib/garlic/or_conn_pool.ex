@@ -6,8 +6,9 @@ defmodule Garlic.ORConnPool do
   connect to a relay, it calls `get_or_connect/1` which returns an existing
   ORConnection or creates a new one.
 
-  This is the core of connection multiplexing — C Tor's equivalent of the
-  `connection_or.c` layer.
+  Connection establishment is non-blocking for the GenServer — the actual
+  TCP+TLS+handshake runs in a spawned task. Multiple callers requesting
+  the same relay will all wait on the same in-flight task.
   """
 
   use GenServer
@@ -25,22 +26,22 @@ defmodule Garlic.ORConnPool do
   @doc """
   Get an existing OR connection to a relay, or create one.
 
-  Returns `{:ok, or_conn_pid}` on success. The connection is fully
-  handshaked and ready for circuit cells.
+  Returns `{:ok, or_conn_pid}` on success. Non-blocking for the pool —
+  if a connection is being established, callers wait on the task ref.
   """
   @spec get_or_connect(Router.t()) :: {:ok, pid()} | {:error, term()}
   def get_or_connect(%Router{fingerprint: fp} = router) do
     case lookup(fp) do
       {:ok, pid} ->
-        if Process.alive?(pid) and ORConnection.connected?(pid) do
+        if Process.alive?(pid) do
           {:ok, pid}
         else
-          remove(fp)
-          do_connect(router)
+          :ets.delete(@ets_table, fp)
+          request_connection(fp, router)
         end
 
       :miss ->
-        do_connect(router)
+        request_connection(fp, router)
     end
   end
 
@@ -49,7 +50,10 @@ defmodule Garlic.ORConnPool do
   def stats do
     conns =
       :ets.tab2list(@ets_table)
-      |> Enum.filter(fn {_fp, pid} -> Process.alive?(pid) end)
+      |> Enum.filter(fn
+        {_fp, pid} when is_pid(pid) -> Process.alive?(pid)
+        _ -> false
+      end)
 
     total_circuits =
       Enum.reduce(conns, 0, fn {_fp, pid}, acc ->
@@ -65,19 +69,28 @@ defmodule Garlic.ORConnPool do
 
   # -- Internal --
 
-  defp do_connect(%Router{fingerprint: fp} = router) do
-    GenServer.call(__MODULE__, {:connect, fp, router}, 20_000)
-  end
-
   defp lookup(fingerprint) do
     case :ets.lookup(@ets_table, fingerprint) do
-      [{_, pid}] -> {:ok, pid}
-      [] -> :miss
+      [{_, pid}] when is_pid(pid) -> {:ok, pid}
+      _ -> :miss
     end
   end
 
-  defp remove(fingerprint) do
-    :ets.delete(@ets_table, fingerprint)
+  defp request_connection(fp, router) do
+    case GenServer.call(__MODULE__, {:get_or_start, fp, router}, 30_000) do
+      {:ok, pid} -> {:ok, pid}
+      {:pending, ref} -> await_connection(ref)
+      {:error, _} = err -> err
+    end
+  end
+
+  defp await_connection(ref) do
+    receive do
+      {:or_conn_ready, ^ref, {:ok, pid}} -> {:ok, pid}
+      {:or_conn_ready, ^ref, {:error, reason}} -> {:error, reason}
+    after
+      20_000 -> {:error, :connect_timeout}
+    end
   end
 
   # -- GenServer --
@@ -85,51 +98,86 @@ defmodule Garlic.ORConnPool do
   @impl true
   def init(_opts) do
     :ets.new(@ets_table, [:named_table, :public, :set, read_concurrency: true])
-    {:ok, %{}}
+    {:ok, %{pending: %{}}}
   end
 
   @impl true
-  def handle_call({:connect, fp, router}, _from, state) do
+  def handle_call({:get_or_start, fp, router}, {caller_pid, _} = _from, state) do
     case :ets.lookup(@ets_table, fp) do
       [{_, pid}] when is_pid(pid) ->
         if Process.alive?(pid) do
           {:reply, {:ok, pid}, state}
         else
           :ets.delete(@ets_table, fp)
-          start_and_connect(fp, router, state)
+          start_or_join(fp, router, caller_pid, state)
         end
 
-      [] ->
-        start_and_connect(fp, router, state)
+      _ ->
+        start_or_join(fp, router, caller_pid, state)
     end
   end
 
   @impl true
-  def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
-    # Clean up any entry pointing to this dead pid
+  def handle_info({:connect_result, fp, result}, state) do
+    case Map.pop(state.pending, fp) do
+      {nil, state} ->
+        {:noreply, state}
+
+      {{_task_ref, ref, waiters}, state} ->
+        case result do
+          {:ok, pid} ->
+            :ets.insert(@ets_table, {fp, pid})
+            Process.monitor(pid)
+            Enum.each(waiters, &send(&1, {:or_conn_ready, ref, {:ok, pid}}))
+
+          {:error, _} = err ->
+            Enum.each(waiters, &send(&1, {:or_conn_ready, ref, err}))
+        end
+
+        {:noreply, state}
+    end
+  end
+
+  def handle_info({:DOWN, _mref, :process, pid, _reason}, state) do
     :ets.match_delete(@ets_table, {:_, pid})
     {:noreply, state}
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
 
-  defp start_and_connect(fp, router, state) do
+  defp start_or_join(fp, router, caller_pid, state) do
+    case Map.get(state.pending, fp) do
+      {task_ref, ref, waiters} ->
+        state = put_in(state.pending[fp], {task_ref, ref, [caller_pid | waiters]})
+        {:reply, {:pending, ref}, state}
+
+      nil ->
+        ref = make_ref()
+        pool_pid = self()
+
+        task_ref =
+          Task.start(fn ->
+            result = do_connect(router)
+            send(pool_pid, {:connect_result, fp, result})
+          end)
+
+        state = put_in(state.pending[fp], {task_ref, ref, [caller_pid]})
+        {:reply, {:pending, ref}, state}
+    end
+  end
+
+  defp do_connect(router) do
     case ORConnection.start_link(router) do
       {:ok, pid} ->
-        Process.monitor(pid)
-
         case ORConnection.connect(pid) do
-          :ok ->
-            :ets.insert(@ets_table, {fp, pid})
-            {:reply, {:ok, pid}, state}
-
+          :ok -> {:ok, pid}
           {:error, reason} ->
             GenServer.stop(pid, :normal)
-            {:reply, {:error, reason}, state}
+            {:error, reason}
         end
 
       {:error, reason} ->
-        {:reply, {:error, reason}, state}
+        {:error, reason}
     end
   end
 end
