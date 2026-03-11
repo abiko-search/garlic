@@ -165,7 +165,14 @@ defmodule Garlic.ORConnPool do
 
         task_ref =
           Task.start(fn ->
-            result = do_connect(router)
+            result =
+              try do
+                do_connect(router)
+              catch
+                kind, reason ->
+                  {:error, {kind, reason}}
+              end
+
             send(pool_pid, {:connect_result, fp, result})
           end)
 
@@ -177,11 +184,17 @@ defmodule Garlic.ORConnPool do
   defp do_connect(router) do
     case GenServer.start(ORConnection, router) do
       {:ok, pid} ->
-        case ORConnection.connect(pid) do
-          :ok -> {:ok, pid}
-          {:error, reason} ->
-            GenServer.stop(pid, :normal)
-            {:error, reason}
+        try do
+          case ORConnection.connect(pid) do
+            :ok -> {:ok, pid}
+            {:error, reason} ->
+              GenServer.stop(pid, :normal)
+              {:error, reason}
+          end
+        catch
+          :exit, reason ->
+            Process.exit(pid, :kill)
+            {:error, {:connect_exit, reason}}
         end
 
       {:error, reason} ->
