@@ -72,13 +72,14 @@ defmodule Garlic.NetworkStatus do
     case :ets.lookup(:fast_routers, :pool) do
       [{:pool, routers}] ->
         connected = ORConnPool.connected_fingerprints()
-        {pooled, fresh} = Enum.split_with(routers, &MapSet.member?(connected, &1.fingerprint))
 
-        if length(pooled) >= count do
-          Enum.take_random(pooled, count)
-        else
-          pooled ++ Enum.take_random(fresh, count - length(pooled))
-        end
+        routers
+        |> Enum.shuffle()
+        |> Enum.sort_by(
+          fn r -> if MapSet.member?(connected, r.fingerprint), do: 0, else: 1 end
+        )
+        |> Enum.take(count * 3)
+        |> Enum.take_random(count)
 
       [] ->
         []
