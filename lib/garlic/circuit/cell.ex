@@ -62,7 +62,7 @@ defmodule Garlic.Circuit.Cell do
     {:ok, {circuit_id, :relay, inner_cell}, tail}
   end
 
-  def decode(<<circuit_id::32, 4, reason, tail::binary>>) do
+  def decode(<<circuit_id::32, 4, reason, _padding::binary-size(508), tail::binary>>) do
     reason =
       Enum.at(
         ~w(none protocol internal requested hibernating resourcelimit connectfailed or_identity
@@ -79,19 +79,20 @@ defmodule Garlic.Circuit.Cell do
     {:ok, {circuit_id, :versions}, tail}
   end
 
-  def decode(<<circuit_id::32, 8, timestamp::32, tail::binary>>) do
-    {[my_address], <<address_count, tail::binary>>} = parse_addresses(1, tail)
+  def decode(<<circuit_id::32, 8, payload::binary-size(509), tail::binary>>) do
+    <<timestamp::32, rest::binary>> = payload
+    {[my_address], <<address_count, rest::binary>>} = parse_addresses(1, rest)
 
-    {addresses, _} = parse_addresses(address_count, tail)
+    {addresses, _} = parse_addresses(address_count, rest)
 
-    {:ok, {circuit_id, :netinfo, {timestamp, my_address, addresses}}, ""}
+    {:ok, {circuit_id, :netinfo, {timestamp, my_address, addresses}}, tail}
   end
 
   def decode(
-        <<circuit_id::32, 11, 64::16, server_public_key::binary-size(32), auth::binary-size(32),
-          _::binary>>
+        <<circuit_id::32, 11, payload::binary-size(509), tail::binary>>
       ) do
-    {:ok, {circuit_id, :created2, {server_public_key, auth}}, ""}
+    <<64::16, server_public_key::binary-size(32), auth::binary-size(32), _::binary>> = payload
+    {:ok, {circuit_id, :created2, {server_public_key, auth}}, tail}
   end
 
   def decode(
@@ -112,7 +113,11 @@ defmodule Garlic.Circuit.Cell do
     {:ok, {circuit_id, :auth_challenge}, tail}
   end
 
-  def decode(buffer) when byte_size(buffer) > 509, do: {:error, :unknown_cell}
+  def decode(<<circuit_id::32, 9, inner_cell::binary-size(509), tail::binary>>) do
+    {:ok, {circuit_id, :relay, inner_cell}, tail}
+  end
+
+  def decode(buffer) when byte_size(buffer) >= 514, do: {:error, :unknown_cell}
 
   def decode(buffer), do: {:more, buffer}
 
