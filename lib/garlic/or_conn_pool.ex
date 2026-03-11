@@ -128,23 +128,18 @@ defmodule Garlic.ORConnPool do
 
   @impl true
   def handle_info({:connect_result, fp, result}, state) do
-    fp_hex = Base.encode16(fp, case: :lower) |> binary_part(0, 8)
-
     case Map.pop(state.pending, fp) do
-      {nil, pending} ->
-        Logger.warning("ORConnPool: connect_result for #{fp_hex} but NOT in pending (#{map_size(pending)} entries)")
+      {nil, _} ->
         {:noreply, state}
 
       {{_task_ref, ref, waiters}, remaining_pending} ->
         case result do
           {:ok, pid} ->
-            Logger.debug("ORConnPool: connect_result OK for #{fp_hex}, notifying #{length(waiters)} waiters")
             :ets.insert(@ets_table, {fp, pid})
             Process.monitor(pid)
             Enum.each(waiters, &send(&1, {:or_conn_ready, ref, {:ok, pid}}))
 
-          {:error, reason} = err ->
-            Logger.debug("ORConnPool: connect_result ERROR #{inspect(reason)} for #{fp_hex}, notifying #{length(waiters)} waiters")
+          {:error, _} = err ->
             Enum.each(waiters, &send(&1, {:or_conn_ready, ref, err}))
         end
 
@@ -157,10 +152,7 @@ defmodule Garlic.ORConnPool do
     {:noreply, state}
   end
 
-  def handle_info(msg, state) do
-    Logger.warning("ORConnPool: unexpected message: #{inspect(msg)}")
-    {:noreply, state}
-  end
+  def handle_info(_msg, state), do: {:noreply, state}
 
   defp start_or_join(fp, router, caller_pid, state) do
     case Map.get(state.pending, fp) do

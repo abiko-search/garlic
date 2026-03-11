@@ -518,14 +518,10 @@ defmodule Garlic.NetworkStatus do
 
     path = "/tor/hs/3/#{Base.encode64(blinded_public_key, padding: false)}"
 
-    Logger.debug("HSDir fetch: guard=#{router.nickname} dir=#{directory.nickname}")
-
     result =
       with {:ok, pid} <- Circuit.start(),
            :ok <- Circuit.build_circuit(pid, [router, directory]) do
         try do
-          Logger.debug("HSDir #{directory.nickname}: circuit built, fetching descriptor")
-
           response =
             pid
             |> Client.request(1, "directory", 0, "GET", path, [], "")

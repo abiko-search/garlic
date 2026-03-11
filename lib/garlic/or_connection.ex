@@ -97,7 +97,7 @@ defmodule Garlic.ORConnection do
     tcp_options = [:binary, send_timeout: @default_timeout, active: false]
     ssl_options = [verify: :verify_peer, verify_fun: {&verify_certificate/3, nil}, cacerts: []]
 
-    with {:ok, tcp_socket} <- :gen_tcp.connect(address, port, tcp_options, 5_000),
+    with {:ok, tcp_socket} <- :gen_tcp.connect(address, port, tcp_options, 10_000),
          {:ok, ssl_socket} <- upgrade_to_tls(tcp_socket, ssl_options),
          {:ok, state} <- do_handshake(%{state | socket: ssl_socket}),
          :ok <- :ssl.setopts(ssl_socket, active: :once) do
@@ -286,10 +286,9 @@ defmodule Garlic.ORConnection do
     end
   end
 
-  defp dispatch_one_cell(state, {circuit_id, command, _payload} = cell) do
+  defp dispatch_one_cell(state, {circuit_id, _command, _payload} = cell) do
     case Map.get(state.circuits, circuit_id) do
       nil ->
-        Logger.warning("ORConn[#{state.router.nickname}]: #{command} cell for unregistered circuit 0x#{Integer.to_string(circuit_id, 16)}, have #{map_size(state.circuits)} circuits registered")
         state
 
       owner_pid ->
