@@ -286,10 +286,10 @@ defmodule Garlic.ORConnection do
     end
   end
 
-  defp dispatch_one_cell(state, {circuit_id, _command, _payload} = cell) do
+  defp dispatch_one_cell(state, {circuit_id, command, _payload} = cell) do
     case Map.get(state.circuits, circuit_id) do
       nil ->
-        Logger.debug("ORConn: cell for unknown circuit #{circuit_id}, dropping")
+        Logger.warning("ORConn[#{state.router.nickname}]: #{command} cell for unregistered circuit 0x#{Integer.to_string(circuit_id, 16)}, have #{map_size(state.circuits)} circuits registered")
         state
 
       owner_pid ->
@@ -301,7 +301,6 @@ defmodule Garlic.ORConnection do
   defp dispatch_one_cell(state, {circuit_id, _command} = cell) do
     case Map.get(state.circuits, circuit_id) do
       nil ->
-        Logger.debug("ORConn: cell for unknown circuit #{circuit_id}, dropping")
         state
 
       owner_pid ->
