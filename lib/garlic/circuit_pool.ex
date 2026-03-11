@@ -35,7 +35,7 @@ defmodule Garlic.CircuitPool do
   require Logger
 
   @default_pool_size 2
-  @default_max_domains 100
+  @default_max_domains 5000
   @pool_timeout 60_000
   @domain_health_table :circuit_pool_domain_health
   @base_backoff_ms 60_000
