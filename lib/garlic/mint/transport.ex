@@ -25,8 +25,9 @@ defmodule Garlic.Mint.Transport do
   end
 
   @impl true
-  def getopts(_socket, _opts) do
-    {:ok, []}
+  def getopts(_socket, opts) do
+    defaults = [sndbuf: 65536, recbuf: 65536, buffer: 65536]
+    {:ok, Keyword.take(defaults, opts)}
   end
 
   @impl true
