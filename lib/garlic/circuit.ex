@@ -1,15 +1,15 @@
 defmodule Garlic.Circuit do
-  @moduledoc "Tor circuit"
+  @moduledoc "Tor circuit over a shared OR connection"
 
   import Bitwise
   use GenServer
 
   require Logger
 
-  alias Garlic.{Circuit, Crypto, IntroductionPoint, NetworkStatus, RendezvousPoint, Router}
+  alias Garlic.{Circuit, Crypto, IntroductionPoint, NetworkStatus, ORConnPool, ORConnection, RendezvousPoint, Router}
 
   defstruct [
-    :socket,
+    :or_conn,
     :id,
     :public_key,
     :private_key,
@@ -24,7 +24,7 @@ defmodule Garlic.Circuit do
   @type id :: pos_integer
 
   @type t() :: %__MODULE__{
-          socket: :ssl.socket(),
+          or_conn: pid() | nil,
           id: id,
           public_key: binary,
           private_key: binary,
@@ -100,13 +100,13 @@ defmodule Garlic.Circuit do
   end
 
   @spec getopts(pid, Keyword.t()) :: {:ok, [:gen_tcp.option()]} | {:error, any}
-  def getopts(pid, opts) do
-    GenServer.call(pid, {:getopts, opts})
+  def getopts(_pid, _opts) do
+    {:ok, []}
   end
 
   @spec setopts(pid, Keyword.t()) :: {:ok, [:gen_tcp.option()]} | {:error, any}
-  def setopts(pid, opts) do
-    GenServer.call(pid, {:setopts, opts})
+  def setopts(_pid, _opts) do
+    {:ok, []}
   end
 
   @spec close(pid) :: :ok | {:error, atom}
@@ -175,41 +175,29 @@ defmodule Garlic.Circuit do
 
   @impl true
   def handle_call(
-        {:connect, %Router{ipv4: address, onion_port: port, nickname: nickname} = router},
+        {:connect, %Router{nickname: nickname} = router},
         _from,
         circuit
       ) do
     Logger.metadata(circuit_id: circuit.id &&& 0x0FFFFFFF)
+    Logger.debug("Connecting to #{nickname} via ORConnPool")
 
-    {address, port} = Garlic.resolve_address(address, port)
-    Logger.debug("Connecting to #{nickname} #{:inet.ntoa(address)}:#{port}")
+    case ORConnPool.get_or_connect(router) do
+      {:ok, or_conn} ->
+        ORConnection.register_circuit(or_conn, circuit.id, self())
+        circuit = %{circuit | or_conn: or_conn, routers: [router]}
 
-    tcp_options = [:binary, send_timeout: @default_timeout, active: false]
-    ssl_options = [verify: :verify_peer, verify_fun: {&verify_certificate/3, nil}, cacerts: []]
+        case do_create2(circuit) do
+          {:ok, circuit} ->
+            {:reply, :ok, circuit}
 
-    with {:ok, tcp_socket} <- :gen_tcp.connect(address, port, tcp_options),
-         {:ok, ssl_socket} <- upgrade_to_tls(tcp_socket, ssl_options) do
-      circuit = %{circuit | socket: ssl_socket, routers: [router]}
+          {:error, reason} ->
+            ORConnection.unregister_circuit(or_conn, circuit.id)
+            {:stop, reason, {:error, reason}, circuit}
+        end
 
-      with {:ok, circuit} <- send_versions(circuit),
-           {:ok, circuit} <- receive_versions(circuit),
-           {:ok, circuit} <- receive_certs(circuit),
-           {:ok, circuit} <- receive_auth_challenge(circuit),
-           {:ok, {their_address, my_address}, circuit} <- receive_netinfo(circuit),
-           {:ok, circuit} <- send_netinfo(circuit, their_address, my_address),
-           {:ok, circuit} <- send_create2(generate_keypair(circuit)),
-           {:ok, circuit} <- receive_created2(circuit) do
-        {:reply, :ok, circuit}
-      else
-        {:ok, _, _} ->
-          {:stop, :protocol, circuit}
-
-        {:error, reason} ->
-          {:stop, reason, circuit}
-      end
-    else
       {:error, reason} ->
-        {:stop, reason, circuit}
+        {:stop, reason, {:error, reason}, circuit}
     end
   end
 
@@ -253,8 +241,7 @@ defmodule Garlic.Circuit do
 
     payload = <<"#{domain}:#{port}\0", 0::32>>
 
-    with {:ok, circuit} <- send_relay(circuit, stream_id, 1, payload),
-         :ok <- :ssl.setopts(circuit.socket, active: :once) do
+    with {:ok, circuit} <- send_relay(circuit, stream_id, 1, payload) do
       {:noreply, put_in(circuit.streams[stream_id], %Circuit.Stream{from: from})}
     else
       {:error, reason} -> {:stop, reason, circuit}
@@ -264,8 +251,7 @@ defmodule Garlic.Circuit do
   def handle_call({:relay_begin_dir, stream_id}, from, circuit) do
     Logger.debug("Sending RELAY_BEGIN_DIR")
 
-    with {:ok, circuit} <- send_relay(circuit, stream_id, 13, <<>>),
-         :ok <- :ssl.setopts(circuit.socket, active: :once) do
+    with {:ok, circuit} <- send_relay(circuit, stream_id, 13, <<>>) do
       {:noreply, put_in(circuit.streams[stream_id], %Circuit.Stream{from: from})}
     else
       {:error, reason} -> {:stop, reason, circuit}
@@ -352,42 +338,20 @@ defmodule Garlic.Circuit do
     {:stop, :normal, :ok, circuit}
   end
 
-  def handle_call({:getopts, opts}, _from, circuit) do
-    {:reply, :ssl.getopts(circuit.socket, opts), circuit}
-  end
-
-  def handle_call({:setopts, opts}, _from, circuit) do
-    {:reply, :ssl.setopts(circuit.socket, opts), circuit}
-  end
-
   @impl true
-  def terminate(_reason, %__MODULE__{socket: socket}) when socket != nil do
-    close_ssl_socket(socket)
-  rescue
-    _ -> :ok
+  def terminate(_reason, %__MODULE__{or_conn: or_conn, id: id}) when or_conn != nil do
+    try do
+      ORConnection.unregister_circuit(or_conn, id)
+    catch
+      _, _ -> :ok
+    end
   end
 
   def terminate(_reason, _state), do: :ok
 
-  defp close_ssl_socket(socket) do
-    # Capture linked SSL processes before closing
-    ssl_pids =
-      case Process.info(self(), :links) do
-        {:links, links} -> Enum.filter(links, &is_pid/1)
-        _ -> []
-      end
-
-    :ssl.close(socket)
-
-    # OTP 27 ssl_gen_statem may linger after :ssl.close — force exit
-    Enum.each(ssl_pids, fn pid ->
-      if Process.alive?(pid), do: Process.exit(pid, :kill)
-    end)
-  end
-
   @impl true
-  def handle_info({:ssl, _, data}, circuit) do
-    case handle_data(circuit, data) do
+  def handle_info({:or_cell, cell}, circuit) do
+    case handle_cell(circuit, cell) do
       {:ok, circuit} ->
         {:noreply, circuit}
 
@@ -396,9 +360,8 @@ defmodule Garlic.Circuit do
     end
   end
 
-  def handle_info({:ssl_closed, _}, circuit) do
-    Logger.debug("Connection closed")
-
+  def handle_info({:or_connection_down, reason}, circuit) do
+    Logger.debug("OR connection down: #{inspect(reason)}")
     {:stop, :normal, circuit}
   end
 
@@ -407,64 +370,69 @@ defmodule Garlic.Circuit do
     {:stop, reason, circuit}
   end
 
-  defp upgrade_to_tls(tcp_socket, ssl_options) do
-    case :ssl.connect(tcp_socket, ssl_options) do
-      {:ok, _} = ok -> ok
-      {:error, _} = err ->
-        :gen_tcp.close(tcp_socket)
-        err
-    end
-  end
+  def handle_info(_msg, circuit), do: {:noreply, circuit}
 
-  defp verify_certificate(_certificate, _event, _state), do: {:valid, nil}
+  # -- CREATE2 over ORConnection --
 
-  defp receive_versions(circuit) do
-    with {:ok, {0, :versions}, circuit} <- recv_next_cell(circuit, "") do
-      Logger.debug("Received VERSIONS")
+  defp do_create2(circuit) do
+    circuit = generate_keypair(circuit)
 
+    %Circuit{
+      or_conn: or_conn,
+      id: circuit_id,
+      public_key: public_key,
+      routers: [%Router{fingerprint: fingerprint, ntor_onion_key: ntor_onion_key}]
+    } = circuit
+
+    padding_size = 514 - 9 - 84
+
+    packet = [
+      <<circuit_id::32, 10, 2::16, 84::16>>,
+      fingerprint,
+      ntor_onion_key,
+      public_key,
+      <<0::size(padding_size)-unit(8)>>
+    ]
+
+    with :ok <- ORConnection.send_cell(or_conn, packet),
+         {:ok, circuit} <- receive_created2(circuit) do
       {:ok, circuit}
     end
   end
 
-  defp receive_certs(circuit) do
-    with {:ok, {0, :certs, _}, circuit} <- recv_next_cell(circuit, "") do
-      Logger.debug("Received CERTS")
-
-      {:ok, circuit}
-    end
-  end
-
-  defp receive_auth_challenge(circuit) do
-    with {:ok, {0, :auth_challenge}, circuit} <- recv_next_cell(circuit, "") do
-      Logger.debug("Received AUTH_CHALLENGE")
-
-      {:ok, circuit}
-    end
-  end
-
-  defp receive_netinfo(circuit) do
-    with {:ok, {0, :netinfo, {_, my_address, [their_address | _]}}, circuit} <-
-           recv_next_cell(circuit, "") do
-      Logger.debug("Received NETINFO")
-
-      {:ok, {their_address, my_address}, circuit}
-    end
-  end
+  # -- Synchronous receive (waits for :or_cell messages) --
 
   defp receive_created2(%Circuit{id: circuit_id} = circuit) do
-    with {:ok, {^circuit_id, :created2, {server_public_key, auth}}, circuit} <-
-           recv_next_cell(circuit, "") do
-      Logger.debug("Received CREATED2")
+    receive do
+      {:or_cell, {^circuit_id, :created2, {server_public_key, auth}}} ->
+        Logger.debug("Received CREATED2")
 
-      with {:ok, hop} <- Crypto.complete_ntor_handshake(circuit, server_public_key, auth) do
-        {:ok, %{circuit | hops: [hop | circuit.hops]}}
-      end
+        with {:ok, hop} <- Crypto.complete_ntor_handshake(circuit, server_public_key, auth) do
+          {:ok, %{circuit | hops: [hop | circuit.hops]}}
+        end
+
+      {:or_cell, {^circuit_id, :destroy, reason}} ->
+        {:error, reason}
+
+      {:or_connection_down, reason} ->
+        {:error, reason}
+    after
+      @default_timeout -> {:error, :timeout}
     end
   end
 
-  defp receive_relay(%Circuit{id: circuit_id} = circuit) do
-    with {:ok, {^circuit_id, :relay, relay_cell}, circuit} <- recv_next_cell(circuit, "") do
-      decode_relay_cell(circuit, relay_cell)
+  defp receive_relay(circuit) do
+    receive do
+      {:or_cell, {_circuit_id, :relay, relay_cell}} ->
+        decode_relay_cell(circuit, relay_cell)
+
+      {:or_cell, {_circuit_id, :destroy, reason}} ->
+        {:error, reason}
+
+      {:or_connection_down, reason} ->
+        {:error, reason}
+    after
+      @default_timeout -> {:error, :timeout}
     end
   end
 
@@ -528,45 +496,10 @@ defmodule Garlic.Circuit do
     %{circuit | public_key: public_key, private_key: private_key}
   end
 
-  defp recv_next_cell(%Circuit{buffer: buffer, socket: socket} = circuit, data) do
-    case Circuit.Cell.decode(buffer <> data) do
-      {:ok, :padding, tail} ->
-        recv_next_cell(%{circuit | buffer: ""}, tail)
-
-      {:ok, cell, tail} ->
-        {:ok, cell, %{circuit | buffer: tail}}
-
-      {:more, buffer} ->
-        with {:ok, data} <- :ssl.recv(socket, 0) do
-          recv_next_cell(%{circuit | buffer: buffer}, data)
-        end
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp handle_data(%Circuit{buffer: buffer} = circuit, data) do
-    case Circuit.Cell.decode(buffer <> data) do
-      {:ok, :padding, tail} ->
-        handle_data(%{circuit | buffer: ""}, tail)
-
-      {:ok, cell, tail} ->
-        with {:ok, circuit} <- handle_cell(circuit, cell) do
-          handle_data(%{circuit | buffer: ""}, tail)
-        end
-
-      {:more, buffer} ->
-        {:ok, %{circuit | buffer: buffer}}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
+  # -- Cell handling (dispatched from ORConnection via :or_cell) --
 
   defp handle_cell(%Circuit{id: circuit_id}, {circuit_id, :destroy, reason}) do
     Logger.debug("Received DESTROY #{reason}")
-
     {:error, reason}
   end
 
@@ -629,69 +562,11 @@ defmodule Garlic.Circuit do
     {:ok, circuit}
   end
 
-  defp send_versions(%Circuit{socket: socket, id: circuit_id} = circuit) do
-    Logger.debug("Sending VERSIONS")
-
-    payload = <<3::16, 4::16>>
-    packet = <<circuit_id::16, 7, byte_size(payload)::16, payload::binary>>
-
-    with :ok <- :ssl.send(socket, packet) do
-      {:ok, circuit}
-    end
-  end
-
-  defp send_netinfo(
-         %Circuit{socket: socket, id: circuit_id} = circuit,
-         {their_type, their_address},
-         {my_type, my_address}
-       ) do
-    Logger.debug("Sending NETINFO")
-
-    padding_size = 514 - 14 - byte_size(their_address) - byte_size(my_address)
-
-    packet =
-      <<circuit_id::32, 8, System.system_time(:second)::32, their_type, byte_size(their_address),
-        their_address::binary, 1, my_type, byte_size(my_address), my_address::binary,
-        0::size(padding_size)-unit(8)>>
-
-    with :ok <- :ssl.send(socket, packet) do
-      {:ok, circuit}
-    end
-  end
-
-  defp send_create2(
-         %Circuit{
-           socket: socket,
-           public_key: public_key,
-           id: circuit_id,
-           routers: [
-             %Router{
-               fingerprint: fingerprint,
-               ntor_onion_key: ntor_onion_key
-             }
-           ]
-         } = circuit
-       ) do
-    Logger.debug("Sending CREATE2")
-
-    padding_size = 514 - 9 - 84
-
-    packet = [
-      <<circuit_id::32, 10, 2::16, 84::16>>,
-      fingerprint,
-      ntor_onion_key,
-      public_key,
-      <<0::size(padding_size)-unit(8)>>
-    ]
-
-    with :ok <- :ssl.send(socket, packet) do
-      {:ok, circuit}
-    end
-  end
+  # -- Send relay cells through ORConnection --
 
   defp send_relay(
          %Circuit{
-           socket: socket,
+           or_conn: or_conn,
            id: circuit_id,
            hops: [%Circuit.Hop{forward_digest: forward_digest} = last_hop | prev_hops] = hops
          } = circuit,
@@ -718,10 +593,13 @@ defmodule Garlic.Circuit do
         end
       )
 
-    with :ok <- :ssl.send(socket, [<<circuit_id::32, command>>, ciphertext]) do
-      hops = [%{last_hop | forward_digest: forward_digest} | prev_hops]
+    case ORConnection.send_cell(or_conn, [<<circuit_id::32, command>>, ciphertext]) do
+      :ok ->
+        hops = [%{last_hop | forward_digest: forward_digest} | prev_hops]
+        {:ok, %{circuit | hops: hops}}
 
-      {:ok, %{circuit | hops: hops}}
+      {:error, _} = err ->
+        err
     end
   end
 

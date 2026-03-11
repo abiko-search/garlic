@@ -260,12 +260,10 @@ defmodule Garlic.CircuitPool do
   end
 
   def handle_info(:reap_ssl, state) do
-    reaped_ssl = reap_orphaned_ssl_processes()
     reaped_gs = reap_orphaned_genservers()
-    total = reaped_ssl + reaped_gs
 
-    if total > 0,
-      do: Logger.info("Reaped #{reaped_ssl} orphaned circuits, #{reaped_gs} empty gen_servers")
+    if reaped_gs > 0,
+      do: Logger.info("Reaped #{reaped_gs} orphaned circuit gen_servers")
 
     schedule_ssl_reaper()
     {:noreply, state}
@@ -364,51 +362,5 @@ defmodule Garlic.CircuitPool do
     Process.send_after(self(), :reap_ssl, @reaper_interval_ms)
   end
 
-  defp reap_orphaned_ssl_processes do
-    # Collect all circuit PIDs that NimblePool is actively managing
-    managed_pids =
-      if :ets.whereis(:circuit_pool_workers) != :undefined do
-        :ets.foldl(fn {_domain, workers}, acc ->
-          pids = Enum.map(workers, & &1.pid) |> Enum.reject(&is_nil/1)
-          pids ++ acc
-        end, [], :circuit_pool_workers)
-        |> MapSet.new()
-      else
-        MapSet.new()
-      end
 
-    # Find gen_server processes linked to SSL statemachines but not in the pool
-    Process.list()
-    |> Enum.reduce(0, fn pid, count ->
-      with {:current_function, {:gen_server, :loop, 7}} <- Process.info(pid, :current_function),
-           false <- MapSet.member?(managed_pids, pid),
-           {:links, links} <- Process.info(pid, :links) do
-        has_ssl_link = Enum.any?(links, fn l ->
-          is_pid(l) and
-            (case Process.info(l, :current_function) do
-              {:current_function, {:gen_statem, :loop_receive, 3}} -> true
-              _ -> false
-            end)
-        end)
-
-        has_non_ssl_link = Enum.any?(links, fn l ->
-          is_pid(l) and
-            not (case Process.info(l, :current_function) do
-              {:current_function, {:gen_statem, :loop_receive, 3}} -> true
-              {:current_function, {:gen_server, :loop, 7}} -> true
-              _ -> false
-            end)
-        end)
-
-        if has_ssl_link and not has_non_ssl_link do
-          GenServer.stop(pid, :normal)
-          count + 1
-        else
-          count
-        end
-      else
-        _ -> count
-      end
-    end)
-  end
 end

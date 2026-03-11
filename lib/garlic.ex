@@ -8,6 +8,7 @@ defmodule Garlic do
     children = [
       Garlic.NetworkStatus,
       {Registry, name: Garlic.CircuitRegistry, keys: :unique},
+      Garlic.ORConnPool,
       {Garlic.CircuitSupervisor, []},
       {Garlic.CircuitManager, []},
       {Garlic.CircuitPool, Application.get_env(:garlic, :circuit_pool, [])},
