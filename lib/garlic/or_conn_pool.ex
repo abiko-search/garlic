@@ -45,6 +45,15 @@ defmodule Garlic.ORConnPool do
     end
   end
 
+  @doc "Return the set of relay fingerprints that have live OR connections."
+  @spec connected_fingerprints() :: MapSet.t(binary())
+  def connected_fingerprints do
+    :ets.tab2list(@ets_table)
+    |> Enum.filter(fn {_fp, pid} -> is_pid(pid) and Process.alive?(pid) end)
+    |> Enum.map(fn {fp, _pid} -> fp end)
+    |> MapSet.new()
+  end
+
   @doc "Stats for observability."
   @spec stats() :: %{connections: non_neg_integer(), total_circuits: non_neg_integer()}
   def stats do

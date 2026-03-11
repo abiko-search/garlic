@@ -9,7 +9,7 @@ defmodule Garlic.NetworkStatus do
 
   use GenServer
 
-  alias Garlic.{Circuit, Crypto, Mint.Client, NetworkStatus.Document}
+  alias Garlic.{Circuit, Crypto, Mint.Client, NetworkStatus.Document, ORConnPool}
 
   defstruct [
     :previous_shared_random,
@@ -70,8 +70,18 @@ defmodule Garlic.NetworkStatus do
   @spec pick_fast_routers(pos_integer) :: list(Garlic.Router.t())
   def pick_fast_routers(count) do
     case :ets.lookup(:fast_routers, :pool) do
-      [{:pool, routers}] -> Enum.take_random(routers, count)
-      [] -> []
+      [{:pool, routers}] ->
+        connected = ORConnPool.connected_fingerprints()
+        {pooled, fresh} = Enum.split_with(routers, &MapSet.member?(connected, &1.fingerprint))
+
+        if length(pooled) >= count do
+          Enum.take_random(pooled, count)
+        else
+          pooled ++ Enum.take_random(fresh, count - length(pooled))
+        end
+
+      [] ->
+        []
     end
   end
 

@@ -97,7 +97,7 @@ defmodule Garlic.ORConnection do
     tcp_options = [:binary, send_timeout: @default_timeout, active: false]
     ssl_options = [verify: :verify_peer, verify_fun: {&verify_certificate/3, nil}, cacerts: []]
 
-    with {:ok, tcp_socket} <- :gen_tcp.connect(address, port, tcp_options),
+    with {:ok, tcp_socket} <- :gen_tcp.connect(address, port, tcp_options, 5_000),
          {:ok, ssl_socket} <- upgrade_to_tls(tcp_socket, ssl_options),
          {:ok, state} <- do_handshake(%{state | socket: ssl_socket}),
          :ok <- :ssl.setopts(ssl_socket, active: :once) do
