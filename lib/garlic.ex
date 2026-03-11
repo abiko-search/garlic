@@ -6,9 +6,9 @@ defmodule Garlic do
 
   def start(_type, _args) do
     children = [
+      Garlic.ORConnPool,
       Garlic.NetworkStatus,
       {Registry, name: Garlic.CircuitRegistry, keys: :unique},
-      Garlic.ORConnPool,
       {Garlic.CircuitSupervisor, []},
       {Garlic.CircuitManager, []},
       {Garlic.CircuitPool, Application.get_env(:garlic, :circuit_pool, [])},
