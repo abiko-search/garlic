@@ -36,7 +36,7 @@ defmodule Garlic.Circuit do
           streams: %{Circuit.Stream.id() => Circuit.Stream.t()}
         }
 
-  @default_timeout 10_000
+  @default_timeout 30_000
 
   @spec start(id) :: {:ok, pid} | {:error, any}
   def start(id \\ :rand.uniform(0x0FFFFFFF)) do
