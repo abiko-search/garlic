@@ -184,16 +184,23 @@ defmodule Garlic.Circuit do
 
     case ORConnPool.get_or_connect(router) do
       {:ok, or_conn} ->
-        ORConnection.register_circuit(or_conn, circuit.id, self())
-        circuit = %{circuit | or_conn: or_conn, routers: [router]}
+        try do
+          ORConnection.register_circuit(or_conn, circuit.id, self())
+        catch
+          :exit, reason ->
+            {:stop, {:or_conn_dead, reason}, {:error, :or_conn_dead}, circuit}
+        else
+          :ok ->
+            circuit = %{circuit | or_conn: or_conn, routers: [router]}
 
-        case do_create2(circuit) do
-          {:ok, circuit} ->
-            {:reply, :ok, circuit}
+            case do_create2(circuit) do
+              {:ok, circuit} ->
+                {:reply, :ok, circuit}
 
-          {:error, reason} ->
-            ORConnection.unregister_circuit(or_conn, circuit.id)
-            {:stop, reason, {:error, reason}, circuit}
+              {:error, reason} ->
+                ORConnection.unregister_circuit(or_conn, circuit.id)
+                {:stop, reason, {:error, reason}, circuit}
+            end
         end
 
       {:error, reason} ->

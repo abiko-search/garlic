@@ -120,10 +120,10 @@ defmodule Garlic.ORConnPool do
   @impl true
   def handle_info({:connect_result, fp, result}, state) do
     case Map.pop(state.pending, fp) do
-      {nil, state} ->
+      {nil, _} ->
         {:noreply, state}
 
-      {{_task_ref, ref, waiters}, state} ->
+      {{_task_ref, ref, waiters}, remaining_pending} ->
         case result do
           {:ok, pid} ->
             :ets.insert(@ets_table, {fp, pid})
@@ -134,7 +134,7 @@ defmodule Garlic.ORConnPool do
             Enum.each(waiters, &send(&1, {:or_conn_ready, ref, err}))
         end
 
-        {:noreply, state}
+        {:noreply, %{state | pending: remaining_pending}}
     end
   end
 
@@ -167,7 +167,7 @@ defmodule Garlic.ORConnPool do
   end
 
   defp do_connect(router) do
-    case ORConnection.start_link(router) do
+    case GenServer.start(ORConnection, router) do
       {:ok, pid} ->
         case ORConnection.connect(pid) do
           :ok -> {:ok, pid}
