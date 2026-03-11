@@ -14,19 +14,24 @@ defmodule Garlic.Mint.Transport do
     pid = Keyword.fetch!(opts, :pid)
     stream_id = Keyword.get(opts, :stream_id, 1)
 
-    with :ok <- Circuit.begin(pid, stream_id, domain, port) do
-      {:ok, {pid, stream_id}}
+    case Circuit.begin(pid, stream_id, domain, port) do
+      :ok ->
+        {:ok, {pid, stream_id}}
+
+      {:error, reason} ->
+        Logger.warning("Transport.connect failed for #{domain}:#{port}: #{inspect(reason)}")
+        {:error, reason}
     end
   end
 
   @impl true
-  def getopts({pid, _}, opts) do
-    Circuit.getopts(pid, opts)
+  def getopts(_socket, _opts) do
+    {:ok, []}
   end
 
   @impl true
-  def setopts({pid, _}, opts) do
-    Circuit.setopts(pid, opts)
+  def setopts(_socket, _opts) do
+    :ok
   end
 
   @impl true

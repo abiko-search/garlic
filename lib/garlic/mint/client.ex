@@ -1,6 +1,8 @@
 defmodule Garlic.Mint.Client do
   @moduledoc false
 
+  require Logger
+
   # Mint supports custom transport modules as scheme but its typespec doesn't reflect that
   @dialyzer {:nowarn_function, request: 8}
 
@@ -11,17 +13,20 @@ defmodule Garlic.Mint.Client do
           transport_opts: [pid: pid, stream_id: stream_id]
         ]
 
-        try do
-          with {:ok, conn} <- Mint.HTTP1.connect(Garlic.Mint.Transport, host, port, opts),
-               {:ok, conn, ref} <- Mint.HTTP.request(conn, method, path, headers, body) do
-            {conn, ref, :continue}
-          end
-        rescue
-          _ -> {nil, nil, :halt}
+        with {:ok, conn} <- Mint.HTTP1.connect(Garlic.Mint.Transport, host, port, opts),
+             {:ok, conn, ref} <- Mint.HTTP.request(conn, method, path, headers, body) do
+          {conn, ref, :continue}
+        else
+          {:error, reason} ->
+            Logger.warning("Mint connect/request failed: #{inspect(reason)}")
+            {nil, nil, :halt}
         end
       end,
       &parse_chunks/1,
-      fn {conn, _} -> Mint.HTTP.close(conn) end
+      fn
+        {nil, _} -> :ok
+        {conn, _} -> Mint.HTTP.close(conn)
+      end
     )
   end
 
